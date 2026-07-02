@@ -805,14 +805,14 @@ else:
 
                 def resumo_alvos_por_objetivo(areas, df_hist, df_alvos, df_alvos_periodo, df_lib, periodo_inicio, periodo_fim):
                     rows = []
+                    periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
                     for area_num, itens in areas.items():
                         for item_index, item in enumerate(itens):
                             codigo = f"Objetivo {area_num}.{item_index + 1}"
                             programa = item.get("programa", "")
                             limiar = limiar_programa_pei(programa, df_lib)
                             linha_de_base, _ = desempenho_trimestral_para_programa(programa, df_hist, limiar)
-                            desempenho_inicial = texto_desempenho_inicial(linha_de_base)
-                            periodo = periodo_aplicacao_programa(df_hist, programa, periodo_inicio, periodo_fim)
+                            desempenho_inicial = f"{linha_de_base:.1f}%" if pd.notna(linha_de_base) else "-"
                             alvos = resumo_alvos_programa(df_alvos, programa, df_lib, df_alvos_periodo)
                             rows.append({
                                 "Objetivo": codigo,
@@ -1039,8 +1039,8 @@ else:
                         set_cell_text(table.rows[0].cells[idx], header)
                         deixar_celula_negrito(table.rows[0].cells[idx])
 
+                    periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
                     if not itens:
-                        periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
                         row = table.add_row()
                         set_cell_text(row.cells[0], "-")
                         set_cell_text(row.cells[1], periodo)
@@ -1056,8 +1056,7 @@ else:
                             programa = item.get("programa", "")
                             limiar = limiar_programa_pei(programa, df_lib)
                             linha_de_base, _ = desempenho_trimestral_para_programa(programa, df_hist, limiar)
-                            desempenho_inicial = texto_desempenho_inicial(linha_de_base)
-                            periodo = periodo_aplicacao_programa(df_hist, programa, periodo_inicio, periodo_fim)
+                            desempenho_inicial = f"{linha_de_base:.1f}%" if pd.notna(linha_de_base) else "-"
                             codigo = f"Objetivo {area_num}.{item_index + 1}"
                             alvos = resumo_alvos_programa(df_alvos, programa, df_lib, df_alvos_periodo)
                             status_geral = status_geral_alvos(alvos)
@@ -1506,8 +1505,7 @@ else:
                 ):
                     doc = Document(PEI_TEMPLATE_PATH)
                     aplicar_fonte_pei(doc)
-                    df_prog_periodo = filtrar_periodo_pei(df_prog, periodo_inicio, periodo_fim_exclusivo)
-                    areas = distribuir_objetivos_por_area(df_prog_periodo, df_beh)
+                    areas = distribuir_objetivos_por_area(df_prog, df_beh)
                     df_alvos_periodo = filtrar_periodo_pei(df_alvos, periodo_inicio, periodo_fim_exclusivo)
 
                     if doc.tables:
@@ -1956,7 +1954,7 @@ else:
                 df_pei = filtrar_periodo_pei(df_p_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
                 df_alvos_preview = carregar_alvos_programas_pei(programas_pei)
                 df_alvos_periodo_preview = filtrar_periodo_pei(df_alvos_preview, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
-                areas_preview = distribuir_objetivos_por_area(df_pei, filtrar_periodo_pei(df_b_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei))
+                areas_preview = distribuir_objetivos_por_area(df_p_raw, filtrar_periodo_pei(df_b_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei))
                 resumo_objetivos_preview = resumo_objetivos_por_area(areas_preview)
                 if resumo_objetivos_preview.empty:
                     st.info("Sem objetivos registrados no periodo selecionado.")
