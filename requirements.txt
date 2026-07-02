@@ -3,6 +3,7 @@ uvicorn
 streamlit
 pandas
 plotly
+matplotlib
 openpyxl
 python-docx
 sqlalchemy

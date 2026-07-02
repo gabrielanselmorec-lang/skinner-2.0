@@ -777,7 +777,7 @@ else:
                         reverse=True,
                     )[0]
 
-                def periodo_aplicacao_programa(df_hist, programa, periodo_inicio, periodo_fim, dias_inatividade=30):
+                def periodo_aplicacao_programa(df_hist, programa, periodo_inicio, periodo_fim):
                     if df_hist is None or df_hist.empty or not programa or "programa" not in df_hist.columns or "date" not in df_hist.columns:
                         return f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
                     hist = df_hist[df_hist["programa"] == programa].copy()
@@ -797,7 +797,7 @@ else:
                     primeira = hist_periodo["date_pd"].min()
                     ultima = hist_periodo["date_pd"].max()
                     inicio_real = max(inicio_ts, primeira)
-                    fim_real = ultima if ultima < (fim_ts - pd.Timedelta(days=dias_inatividade)) else fim_ts
+                    fim_real = ultima
                     return f"{inicio_real.strftime('%d/%m/%Y')} a {fim_real.strftime('%d/%m/%Y')}"
 
                 def texto_desempenho_inicial(valor):
@@ -1620,8 +1620,8 @@ else:
                     doc.add_heading('OBJETIVOS DE INTERVENÇÃO', level=1)
                     doc.add_paragraph("(As metas devem ser Específicas, Mensuráveis, Alcançáveis, Relevantes e com Prazo definido.)\n")
 
-                    df_prog_unicos = df_prog.drop_duplicates(subset=['programa'])
                     df_prog_periodo = filtrar_periodo_pei(df_prog, periodo_inicio, periodo_fim_exclusivo)
+                    df_prog_unicos = df_prog_periodo.drop_duplicates(subset=['programa'])
                     areas = distribuir_objetivos_por_area(df_prog_periodo, df_beh)
 
                     for area_num in range(1, 6):
@@ -1748,8 +1748,8 @@ else:
                         if evo_final_obj in status_objetivos: status_objetivos[evo_final_obj] += 1
                         else: status_objetivos["-"] += 1
 
-                        if not df_alvos.empty and 'programa' in df_alvos.columns:
-                            alvos_prog = df_alvos[df_alvos['programa'] == prog_nome].copy()
+                        if not df_alvos_periodo.empty and 'programa' in df_alvos_periodo.columns:
+                            alvos_prog = df_alvos_periodo[df_alvos_periodo['programa'] == prog_nome].copy()
                             p_alvos = doc.add_paragraph()
                             p_alvos.add_run("\nAlvos que atingiram a meta no periodo:").bold = True
                             
