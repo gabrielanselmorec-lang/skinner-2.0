@@ -8,3 +8,6 @@ raw_data/
 *.db
 *-output.txt
 *-output.md
+logs/
+*.log
+dados_clinica/*.xlsx

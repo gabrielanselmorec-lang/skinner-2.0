@@ -50,76 +50,12 @@ PEI_TEMPLATE_PATH = os.getenv(
     r"C:\Users\coord\Desktop\PEI_2026_TEMPLATE_V3.docx",
 )
 
-@st.cache_data(ttl=600, show_spinner=False)
-def load_data_from_api(paciente):
-    try:
-        resposta = requests.get(
-            f"{API_URL}/api/dados_paciente",
-            params={"paciente": paciente},
-            timeout=API_TIMEOUT_SECONDS,
-        )
-        if resposta.status_code != 200: return pd.DataFrame(), pd.DataFrame()
-        dados = resposta.json()
-        df_p = pd.DataFrame(dados.get("programas", []))
-        df_b = pd.DataFrame(dados.get("interferentes", []))
-        
-        # FORÇA CONVERSÃO NUMÉRICA PARA EVITAR ERRO DE "N/A" NO CÁLCULO DA MÉDIA
-        if not df_p.empty:
-            if 'date' in df_p.columns: df_p['date'] = pd.to_datetime(df_p['date'], errors='coerce', dayfirst=True).dt.date
-            if 'independent_rate' in df_p.columns: df_p['independent_rate'] = pd.to_numeric(df_p['independent_rate'], errors='coerce')
-            if 'prompt_rate' in df_p.columns: df_p['prompt_rate'] = pd.to_numeric(df_p['prompt_rate'], errors='coerce')
-            
-        if not df_b.empty:
-            if 'date' in df_b.columns: df_b['date'] = pd.to_datetime(df_b['date'], errors='coerce', dayfirst=True).dt.date
-            if 'rate' in df_b.columns: df_b['rate'] = pd.to_numeric(df_b['rate'], errors='coerce')
-            if 'count' in df_b.columns: df_b['count'] = pd.to_numeric(df_b['count'], errors='coerce')
-            
-        return df_p, df_b
-    except: return pd.DataFrame(), pd.DataFrame()
-
-@st.cache_data(show_spinner=False)
-def load_targets_from_api(paciente, programa):
-    try:
-        resposta = requests.get(
-            f"{API_URL}/api/alvos",
-            params={"paciente": paciente, "programa": programa},
-            timeout=API_TIMEOUT_SECONDS,
-        )
-        if resposta.status_code != 200: return pd.DataFrame()
-        df = pd.DataFrame(resposta.json())
-        
-        if not df.empty:
-            if 'date' in df.columns: df['date'] = pd.to_datetime(df['date'], errors='coerce', dayfirst=True).dt.date
-            if 'independent_rate' in df.columns: df['independent_rate'] = pd.to_numeric(df['independent_rate'], errors='coerce')
-            if 'prompt_rate' in df.columns: df['prompt_rate'] = pd.to_numeric(df['prompt_rate'], errors='coerce')
-            
-        return df
-    except: return pd.DataFrame()
-
-@st.cache_data(ttl=600, show_spinner=False)
-def load_library_from_api():
-    try:
-        resposta = requests.get(f"{API_URL}/api/biblioteca", timeout=API_TIMEOUT_SECONDS)
-        if resposta.status_code == 200: return pd.DataFrame(resposta.json())
-    except: pass
-    return pd.DataFrame()
-
-def ask_clinical_agent(paciente, pergunta, start_date=None, end_date=None):
-    payload = {
-        "paciente": paciente,
-        "pergunta": pergunta,
-    }
-    if start_date:
-        payload["data_inicio"] = start_date.isoformat()
-    if end_date:
-        payload["data_fim"] = end_date.isoformat()
-    resposta = requests.post(
-        f"{API_URL}/api/agente/clinico",
-        json=payload,
-        timeout=AGENT_TIMEOUT_SECONDS,
-    )
-    resposta.raise_for_status()
-    return resposta.json()
+from api_client import (
+    load_data_from_api,
+    load_targets_from_api,
+    load_library_from_api,
+    ask_clinical_agent,
+)
 
 def render_agent_references(fontes):
     if not fontes:
@@ -143,8 +79,14 @@ st.markdown("---")
 try:
     lista_pacientes = requests.get(f"{API_URL}/api/pacientes", timeout=API_TIMEOUT_SECONDS).json()
     lista_pacientes = sorted(lista_pacientes) 
-except:
+except requests.exceptions.ConnectionError:
     st.error("ERRO: A API não está respondendo. Ligue o Uvicorn no terminal.")
+    st.stop()
+except requests.exceptions.Timeout:
+    st.error("ERRO: A API demorou demais para responder. Tente novamente.")
+    st.stop()
+except Exception as e:
+    st.error(f"ERRO ao conectar à API: {type(e).__name__}. Verifique o terminal.")
     st.stop()
 
 if not lista_pacientes:

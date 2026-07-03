@@ -83,7 +83,9 @@ class ClinicalAgentPayload(BaseModel):
 
 
 def init_assessment_tables() -> None:
-    """Cria as tabelas de avaliacoes no mesmo Postgres/Supabase do projeto."""
+    """Fallback de segurança — as tabelas agora são gerenciadas pela migration
+    alembic/versions/a1b2c3d4e5f6_assessment_tables.py.
+    Esta função pode ser removida após confirmar que `alembic upgrade head` foi executado."""
     global _ASSESSMENT_TABLES_READY
     if _ASSESSMENT_TABLES_READY:
         return
@@ -151,6 +153,8 @@ def init_assessment_tables() -> None:
 
 
 def ensure_clinical_evolution_columns() -> None:
+    """Fallback de segurança — a coluna `evolution` agora é parte da migration inicial
+    563592740d7d. Esta função pode ser removida após confirmar que `alembic upgrade head` foi executado."""
     global _CLINICAL_EVOLUTION_COLUMNS_READY
     if _CLINICAL_EVOLUTION_COLUMNS_READY:
         return
