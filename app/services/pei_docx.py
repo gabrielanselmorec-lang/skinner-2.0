@@ -27,6 +27,7 @@ from app.services.pei_rules import (
     filtrar_periodo_pei,
     formatar_lista_alvos_corrida,
     limiar_programa_pei,
+    limpar_nome_objetivo,
     limpar_texto_pei,
     resposta_ia_invalida,
     resumo_alvos_programa,
@@ -390,14 +391,16 @@ def gerar_texto_trimestral_pei(
         "Responda exclusivamente em portugues brasileiro, em paragrafo corrido. "
         "Nao use codigo, JSON, markdown, listas tecnicas, nomes de variaveis ou termos em ingles. "
         "Responda apenas com o texto final do PEI, sem repetir estas instrucoes. "
-        "Escreva um texto tecnico, objetivo e cauteloso para inserir no PEI. "
-        f"O periodo selecionado e de {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}. "
-        "Leia e sintetize as evolucoes/anotacoes registradas pelos terapeutas no periodo, "
-        "sem citar nomes de terapeutas. "
-        "Explique como foram os objetivos no periodo selecionado, destacando "
-        "progresso, estabilidade, agravamento, alvos relevantes e comportamentos interferentes. "
-        "Use apenas os dados e evolucoes do periodo e nao invente informacoes. "
-        f"Objetivo em destaque para o grafico: {objetivo_grafico}."
+        f"Periodo analisado: {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}. "
+        "Com base nas evolucoes registradas pelos terapeutas no periodo, redija um resumo clinico "
+        "tecnico, cauteloso e objetivo, organizado nestes dois eixos:\n"
+        "1. Avanco no aprendizado das habilidades: descreva a aquisicao de repertorio, marcos "
+        "alcancados, desempenho nos alvos e progressos nos programas de habilidades.\n"
+        "2. Avanco comportamental: descreva o manejo, a topografia e a reducao (ou agravamento) "
+        "dos comportamentos interferentes monitorados no periodo.\n"
+        "Use apenas os dados e evolucoes reais do periodo. "
+        "Nao invente informacoes e nao cite nomes de terapeutas. "
+        f"Objetivo em destaque: {objetivo_grafico}."
     )
 
     def _parece_prompt_ia(texto):
@@ -1070,5 +1073,76 @@ def gerar_doc_completo(
 
     buffer = io.BytesIO()
     doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def gerar_doc_anual_pei(
+    nome_paciente,
+    df_prog,
+    df_hist,
+    df_alvos,
+    df_lib,
+    df_beh,
+    objetivo_grafico,
+    start_date=None,
+    ask_agent_fn=None,
+):
+    """Gera um único DOCX com os 4 trimestres do ano unificados."""
+    if start_date is None:
+        start_date = START_DATE
+    trimestres = [
+        (start_date, start_date + timedelta(days=90)),
+        (start_date + timedelta(days=90), start_date + timedelta(days=180)),
+        (start_date + timedelta(days=180), start_date + timedelta(days=270)),
+        (start_date + timedelta(days=270), start_date + timedelta(days=360)),
+    ]
+
+    doc_final = Document()
+    aplicar_fonte_pei(doc_final)
+    title = doc_final.add_heading(f"RELATÓRIO ANUAL PEI — {limpar_nome_objetivo(nome_paciente)}", 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    ano_fim = (start_date + timedelta(days=359)).strftime("%d/%m/%Y")
+    doc_final.add_paragraph(
+        f"Período: {start_date.strftime('%d/%m/%Y')} a {ano_fim}"
+    )
+
+    for idx, (ini, fim) in enumerate(trimestres, start=1):
+        fim_excl = fim
+        fim_inc = fim - timedelta(days=1)
+        df_hist_tri = filtrar_periodo_pei(df_hist, ini, fim_excl)
+        df_alvos_tri = filtrar_periodo_pei(df_alvos, ini, fim_excl)
+        df_beh_tri = filtrar_periodo_pei(df_beh, ini, fim_excl)
+
+        doc_final.add_page_break()
+        doc_final.add_heading(
+            f"TRIMESTRE {idx} — {ini.strftime('%d/%m/%Y')} a {fim_inc.strftime('%d/%m/%Y')}",
+            level=1,
+        )
+
+        texto_tri = gerar_texto_trimestral_pei(
+            nome_paciente,
+            df_hist_tri,
+            df_alvos_tri,
+            df_beh_tri,
+            objetivo_grafico,
+            ini,
+            fim_inc,
+            usar_ia=(ask_agent_fn is not None),
+            ask_agent_fn=ask_agent_fn,
+        )
+        adicionar_texto_trimestral(doc_final, texto_tri, ini, fim_inc)
+
+        texto_beh = gerar_resumo_comportamentos_problema_local(df_beh_tri, ini, fim_inc)
+        adicionar_resumo_clinico_periodo(doc_final, texto_beh, ini, fim_inc)
+
+        adicionar_graficos_modelo(
+            doc_final, df_hist_tri, df_alvos_tri, df_beh_tri,
+            objetivo_grafico, ini, fim_excl,
+        )
+
+    aplicar_fonte_pei(doc_final)
+    buffer = io.BytesIO()
+    doc_final.save(buffer)
     buffer.seek(0)
     return buffer

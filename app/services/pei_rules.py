@@ -27,6 +27,12 @@ def limpar_texto_pei(texto):
     return re.sub(r"[\U0001F300-\U0001FAFF☀-➿]️?", "", texto).strip()
 
 
+def limpar_nome_objetivo(texto):
+    """Remove código interno entre parênteses vindo da base de dados."""
+    texto = limpar_texto_pei(texto)
+    return re.sub(r'\s*\([^)]*\)', '', texto).strip()
+
+
 def verificar_alvos_clean(objetivo_texto):
     if not objetivo_texto or str(objetivo_texto).strip() == "" or str(objetivo_texto).lower() in ["nan", "none"]:
         return "Descrição não informada."
@@ -249,8 +255,8 @@ def texto_objetivo_programa(row, verificar_fn=None):
     objetivo = (verificar_fn or verificar_alvos_clean)(row.get("objective", ""))
     programa = str(row.get("programa", "")).strip()
     if objetivo and objetivo != "Descrição não informada.":
-        return objetivo
-    return programa or "Objetivo não informado."
+        return limpar_nome_objetivo(objetivo)
+    return limpar_nome_objetivo(programa) or "Objetivo não informado."
 
 
 def distribuir_objetivos_por_area(df_prog, df_beh):

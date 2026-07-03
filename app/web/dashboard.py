@@ -501,20 +501,58 @@ else:
                 ref_date = START_DATE.date()
                 hoje = datetime.now().date()
 
-                periodo_pei = st.date_input(
-                    "Periodo do PEI",
-                    value=(max(ref_date, hoje - timedelta(days=90)), hoje if hoje >= ref_date else ref_date),
-                    min_value=ref_date,
-                    max_value=hoje,
-                    format="DD/MM/YYYY",
-                    key="pei_periodo",
+                modo_relatorio = st.radio(
+                    "Tipo de relatório",
+                    ["Personalizado", "Trimestral", "Anual"],
+                    horizontal=True,
+                    key="pei_modo_relatorio",
                 )
-                if isinstance(periodo_pei, tuple) and len(periodo_pei) == 2:
-                    ciclo_inicio_pei, ciclo_fim_pei = periodo_pei
-                else:
-                    ciclo_inicio_pei, ciclo_fim_pei = ref_date, hoje
-                if ciclo_inicio_pei > ciclo_fim_pei:
-                    ciclo_inicio_pei, ciclo_fim_pei = ciclo_fim_pei, ciclo_inicio_pei
+
+                TRIMESTRES_PEI = {
+                    "T1 (Mar–Jun 2026)": (
+                        START_DATE.date(),
+                        (START_DATE + timedelta(days=89)).date(),
+                    ),
+                    "T2 (Jun–Set 2026)": (
+                        (START_DATE + timedelta(days=90)).date(),
+                        (START_DATE + timedelta(days=179)).date(),
+                    ),
+                    "T3 (Set–Dez 2026)": (
+                        (START_DATE + timedelta(days=180)).date(),
+                        (START_DATE + timedelta(days=269)).date(),
+                    ),
+                    "T4 (Dez 2026–Mar 2027)": (
+                        (START_DATE + timedelta(days=270)).date(),
+                        (START_DATE + timedelta(days=359)).date(),
+                    ),
+                }
+
+                if modo_relatorio == "Personalizado":
+                    periodo_pei = st.date_input(
+                        "Periodo do PEI",
+                        value=(max(ref_date, hoje - timedelta(days=90)), hoje if hoje >= ref_date else ref_date),
+                        min_value=ref_date,
+                        max_value=hoje,
+                        format="DD/MM/YYYY",
+                        key="pei_periodo",
+                    )
+                    if isinstance(periodo_pei, tuple) and len(periodo_pei) == 2:
+                        ciclo_inicio_pei, ciclo_fim_pei = periodo_pei
+                    else:
+                        ciclo_inicio_pei, ciclo_fim_pei = ref_date, hoje
+                    if ciclo_inicio_pei > ciclo_fim_pei:
+                        ciclo_inicio_pei, ciclo_fim_pei = ciclo_fim_pei, ciclo_inicio_pei
+                elif modo_relatorio == "Trimestral":
+                    trimestre_sel = st.selectbox(
+                        "Selecione o trimestre",
+                        list(TRIMESTRES_PEI.keys()),
+                        key="pei_trimestre_sel",
+                    )
+                    ciclo_inicio_pei, ciclo_fim_pei = TRIMESTRES_PEI[trimestre_sel]
+                else:  # Anual
+                    ciclo_inicio_pei = START_DATE.date()
+                    ciclo_fim_pei = (START_DATE + timedelta(days=359)).date()
+
                 ciclo_fim_exclusivo_pei = ciclo_fim_pei + timedelta(days=1)
                 st.caption(
                     "Periodo selecionado: "
@@ -567,6 +605,10 @@ else:
                     for antigo, novo in substituicoes.items():
                         texto = texto.replace(antigo, novo)
                     return re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]\ufe0f?", "", texto).strip()
+
+                def limpar_nome_objetivo(texto):
+                    texto = limpar_texto_pei(texto)
+                    return re.sub(r'\s*\([^)]*\)', '', texto).strip()
 
                 def resposta_ia_invalida(texto):
                     texto_limpo = str(texto or "").strip()
@@ -1101,22 +1143,24 @@ else:
                         "Responda exclusivamente em portugues brasileiro, em paragrafo corrido. "
                         "Nao use codigo, JSON, markdown, listas tecnicas, nomes de variaveis ou termos em ingles. "
                         "Responda apenas com o texto final do PEI, sem repetir estas instrucoes. "
-                        "Escreva um texto tecnico, objetivo e cauteloso para inserir no PEI. "
-                        f"O periodo selecionado e de {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}. "
-                        "Leia e sintetize as evolucoes/anotacoes registradas pelos terapeutas no periodo, "
-                        "sem citar nomes de terapeutas. "
-                        "Explique como foram os objetivos no periodo selecionado, destacando "
-                        "progresso, estabilidade, agravamento, alvos relevantes e comportamentos interferentes. "
-                        "Use apenas os dados e evolucoes do periodo e nao invente informacoes. "
-                        f"Objetivo em destaque para o grafico: {objetivo_grafico}."
+                        f"Periodo analisado: {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}. "
+                        "Com base nas evolucoes registradas pelos terapeutas no periodo, redija um resumo clinico "
+                        "tecnico, cauteloso e objetivo, organizado nestes dois eixos:\n"
+                        "1. Avanco no aprendizado das habilidades: descreva a aquisicao de repertorio, marcos "
+                        "alcancados, desempenho nos alvos e progressos nos programas de habilidades.\n"
+                        "2. Avanco comportamental: descreva o manejo, a topografia e a reducao (ou agravamento) "
+                        "dos comportamentos interferentes monitorados no periodo.\n"
+                        "Use apenas os dados e evolucoes reais do periodo. "
+                        "Nao invente informacoes e nao cite nomes de terapeutas. "
+                        f"Objetivo em destaque: {objetivo_grafico}."
                     )
                     def parece_prompt_ia(texto):
                         texto_cf = str(texto or "").casefold()
                         marcadores_prompt = [
                             "responda apenas com o texto final do pei",
-                            "escreva um texto tecnico",
-                            "explique como foram os objetivos",
-                            "objetivo em destaque para o grafico",
+                            "avanco no aprendizado das habilidades: descreva",
+                            "avanco comportamental: descreva o manejo",
+                            "objetivo em destaque:",
                             "voce e um assistente especialista",
                             "diretrizes de comportamento",
                             "fontes_recuperadas_nao_confiaveis",
@@ -1891,6 +1935,47 @@ else:
                     buffer.seek(0)
                     return buffer
 
+                def gerar_doc_anual_pei_local(nome_paciente, df_prog, df_hist, df_alvos, df_lib, df_beh, objetivo_grafico):
+                    trimestres = [
+                        (START_DATE, START_DATE + timedelta(days=90)),
+                        (START_DATE + timedelta(days=90), START_DATE + timedelta(days=180)),
+                        (START_DATE + timedelta(days=180), START_DATE + timedelta(days=270)),
+                        (START_DATE + timedelta(days=270), START_DATE + timedelta(days=360)),
+                    ]
+                    doc_final = Document()
+                    aplicar_fonte_pei(doc_final)
+                    title = doc_final.add_heading(f"RELATÓRIO ANUAL PEI — {limpar_nome_objetivo(nome_paciente)}", 0)
+                    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    ano_fim = (START_DATE + timedelta(days=359)).strftime("%d/%m/%Y")
+                    doc_final.add_paragraph(f"Período: {START_DATE.strftime('%d/%m/%Y')} a {ano_fim}")
+
+                    for idx, (ini, fim) in enumerate(trimestres, start=1):
+                        fim_excl = fim
+                        fim_inc = fim - timedelta(days=1)
+                        df_hist_tri = filtrar_periodo_pei(df_hist, ini, fim_excl)
+                        df_alvos_tri = filtrar_periodo_pei(df_alvos, ini, fim_excl)
+                        df_beh_tri = filtrar_periodo_pei(df_beh, ini, fim_excl)
+
+                        doc_final.add_page_break()
+                        doc_final.add_heading(
+                            f"TRIMESTRE {idx} — {ini.strftime('%d/%m/%Y')} a {fim_inc.strftime('%d/%m/%Y')}",
+                            level=1,
+                        )
+                        texto_tri = gerar_texto_trimestral_pei(
+                            nome_paciente, df_hist_tri, df_alvos_tri, df_beh_tri,
+                            objetivo_grafico, ini, fim_inc,
+                        )
+                        adicionar_texto_trimestral(doc_final, texto_tri, ini, fim_inc)
+                        texto_beh = gerar_resumo_comportamentos_problema_local(df_beh_tri, ini, fim_inc)
+                        adicionar_resumo_clinico_periodo(doc_final, texto_beh, ini, fim_inc)
+                        adicionar_graficos_modelo(doc_final, df_hist_tri, df_alvos_tri, df_beh_tri, objetivo_grafico, ini, fim_excl)
+
+                    aplicar_fonte_pei(doc_final)
+                    buf_anual = io.BytesIO()
+                    doc_final.save(buf_anual)
+                    buf_anual.seek(0)
+                    return buf_anual
+
                 # Visualização na Tela do Dashboard
                 st.subheader("Areas e objetivos no periodo selecionado")
                 df_pei = filtrar_periodo_pei(df_p_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
@@ -1962,7 +2047,7 @@ else:
                 pei_key = f"pei_docx::{paciente_sel}"
                 pei_name_key = f"pei_docx_name::{paciente_sel}"
 
-                if st.button("Gerar Documento PEI Oficial com Graficos"):
+                if modo_relatorio != "Anual" and st.button("Gerar Documento PEI Oficial com Graficos"):
                     with st.spinner("Compilando graficos, grade de objetivos e resumo dos comportamentos. Aguarde..."):
                         df_alvos_completo = df_alvos_preview.copy()
                         
@@ -1987,7 +2072,16 @@ else:
                         df_prog_periodo_pei = filtrar_periodo_pei(df_prog_dados, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
                         df_alvos_periodo_pei = filtrar_periodo_pei(df_alvos_completo, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
                         df_beh_periodo_pei = filtrar_periodo_pei(df_b_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
-                        texto_analise_trimestral = ""
+                        df_hist_periodo_pei = filtrar_periodo_pei(df_p_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
+                        texto_analise_trimestral = gerar_texto_trimestral_pei(
+                            paciente_sel,
+                            df_hist_periodo_pei,
+                            df_alvos_periodo_pei,
+                            df_beh_periodo_pei,
+                            objetivo_grafico_pei,
+                            ciclo_inicio_pei,
+                            ciclo_fim_pei,
+                        )
                         texto_resumo_comportamentos = gerar_resumo_comportamentos_problema_pei(
                             paciente_sel,
                             df_beh_periodo_pei,
@@ -2016,6 +2110,37 @@ else:
                             f"{ciclo_inicio_pei.strftime('%Y%m%d')}_{ciclo_fim_pei.strftime('%Y%m%d')}.docx"
                         )
                         st.success("PEI gerado. Use o botao abaixo para baixar o arquivo.")
+
+                if modo_relatorio == "Anual":
+                    if st.button("Gerar Relatório Anual Unificado (4 Trimestres)", key="btn_pei_anual"):
+                        with st.spinner("Gerando os 4 trimestres e unificando. Isso pode levar alguns minutos..."):
+                            df_alvos_anual = df_alvos_preview.copy()
+                            df_prog_anual = df_p_raw.copy()
+                            if 'objective' in df_prog_anual.columns:
+                                df_prog_anual['objective'] = df_prog_anual['objective'].astype(str).replace({'None': None, 'nan': None, '': None})
+                            else:
+                                df_prog_anual['objective'] = None
+                            if not df_lib.empty and 'name' in df_lib.columns:
+                                df_lib_unique = df_lib.drop_duplicates(subset=['name'])
+                                df_prog_anual = df_prog_anual.merge(df_lib_unique[['name', 'mastery_threshold_percent', 'objective_template']], left_on='programa', right_on='name', how='left')
+                                df_prog_anual['objective'] = df_prog_anual['objective'].fillna(df_prog_anual['objective_template']).fillna("Descrição não informada.")
+                            else:
+                                df_prog_anual['objective'] = df_prog_anual['objective'].fillna("Descrição não informada.")
+                            buffer_anual = gerar_doc_anual_pei_local(
+                                paciente_sel,
+                                df_prog_anual,
+                                df_p_raw,
+                                df_alvos_anual,
+                                df_lib,
+                                df_b_raw,
+                                objetivo_grafico_pei,
+                            )
+                            st.session_state[pei_key] = buffer_anual.getvalue()
+                            st.session_state[pei_name_key] = (
+                                f"PEI_ANUAL_{paciente_sel.replace(' ', '_')}_"
+                                f"{START_DATE.strftime('%Y')}.docx"
+                            )
+                            st.success("Relatório anual gerado. Use o botao abaixo para baixar.")
 
                 if st.session_state.get(pei_key):
                     st.download_button(
