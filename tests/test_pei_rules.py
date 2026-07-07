@@ -177,7 +177,7 @@ class TestStatusPorIndependencia:
 
     def test_limiar_customizado(self):
         assert status_por_independencia(80, 85, limiar=85) == "Atingiu"
-        assert status_por_independencia(80, 84, limiar=85) == "Avançou"
+        assert status_por_independencia(80, 84, limiar=85) == "Estabilizou"
 
 
 # ---------------------------------------------------------------------------

@@ -1,27 +1,14 @@
 import os
 import sys
-import io
 import re
-import urllib.parse
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 
 import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
 
-# Proteção para usar Matplotlib dentro do Streamlit sem dar conflito de Thread
-import matplotlib
-matplotlib.use('Agg') 
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates   
-import matplotlib.ticker as ticker
 
-from docx import Document
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
-from docx.shared import Pt, Inches, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 # Ajuste de Caminho para importar o main.py
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
@@ -55,6 +42,20 @@ from api_client import (
     load_targets_from_api,
     load_library_from_api,
     ask_clinical_agent,
+)
+from app.services.pei_docx import (
+    estilizar_status_preview_pei as estilizar_status_preview_pei_service,
+    gerar_doc_anual_pei as gerar_doc_anual_pei_service,
+    gerar_doc_completo as gerar_doc_completo_service,
+    gerar_resumo_comportamentos_problema_pei as gerar_resumo_comportamentos_problema_pei_service,
+    gerar_texto_trimestral_pei as gerar_texto_trimestral_pei_service,
+    preparar_programas_pei,
+    resumo_alvos_por_objetivo as resumo_alvos_por_objetivo_service,
+)
+from app.services.pei_rules import (
+    distribuir_objetivos_por_area as distribuir_objetivos_por_area_service,
+    filtrar_periodo_pei as filtrar_periodo_pei_service,
+    resumo_objetivos_por_area as resumo_objetivos_por_area_service,
 )
 
 def render_agent_references(fontes):
@@ -264,7 +265,7 @@ else:
                                         font=dict(color="black", size=11, weight="bold")
                                     )
                                     
-                                st.plotly_chart(fig_p, use_container_width=True)
+                                st.plotly_chart(fig_p, width="stretch")
 
                             with col_especifica:
                                 if alvo_sel == "TODOS OS ALVOS":
@@ -429,7 +430,7 @@ else:
                             labels={'data_str': 'Data', 'count': 'Contagem', 'comportamento': 'Comportamento'},
                         )
                         fig_int_count.update_xaxes(type='category', tickangle=-45)
-                        st.plotly_chart(fig_int_count, use_container_width=True)
+                        st.plotly_chart(fig_int_count, width="stretch")
                     with col_graf_int_2:
                         fig_int_rate = px.line(
                             df_b_decisao.sort_values('date_pd'),
@@ -441,7 +442,7 @@ else:
                             labels={'date_pd': 'Data', 'rate': 'Taxa', 'comportamento': 'Comportamento'},
                         )
                         fig_int_rate.update_xaxes(type='date', tickformat="%d/%m/%y", tickangle=-45)
-                        st.plotly_chart(fig_int_rate, use_container_width=True)
+                        st.plotly_chart(fig_int_rate, width="stretch")
 
                     resumo_interferentes['ultima_data'] = resumo_interferentes['ultima_data'].dt.strftime('%d/%m/%Y')
                     st.dataframe(
@@ -453,7 +454,7 @@ else:
                             'registros': 'Registros',
                             'ultima_data': 'Ultima data',
                         }),
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True,
                     )
 
@@ -478,22 +479,21 @@ else:
                             with c1:
                                 fig1 = px.bar(df_beh, x='date', y='count', color='comportamento', barmode='group', title="Frequência (Contagem)")
                                 fig1.update_xaxes(type='category', tickangle=-45) 
-                                st.plotly_chart(fig1, use_container_width=True)
+                                st.plotly_chart(fig1, width="stretch")
                             with c2:
                                 fig2 = px.line(df_beh, x='date', y='rate', color='comportamento', markers=True, title="Taxa (Ocorrências/Hora)")
                                 fig2.update_xaxes(type='date', tickformat="%d/%m/%y", tickangle=-45)
-                                st.plotly_chart(fig2, use_container_width=True)
+                                st.plotly_chart(fig2, width="stretch")
                         else:
                             df_f = df_beh[df_beh['comportamento'] == beh_sel].sort_values('date')
                             fig = px.line(df_f, x='date', y='rate', markers=True, title=f"Evolução: {beh_sel}")
                             fig.update_xaxes(type='date', tickformat="%d/%m/%y", tickangle=-45)
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width="stretch")
 
             # ==========================================
             # --- ABA 4: RELATÓRIO PEI ---
             # ==========================================
             with tab4:
-                import matplotlib.ticker as ticker
                 
                 st.markdown(f"### Relatorio PEI: **{paciente_sel}**")
                 
@@ -575,72 +575,6 @@ else:
                     key="pei_usar_ia_texto",
                 )
 
-                def verificar_alvos_clean(objetivo_texto):
-                    if not objetivo_texto or str(objetivo_texto).strip() == "" or str(objetivo_texto).lower() in ["nan", "none"]:
-                        return "Descrição não informada."
-                    return str(objetivo_texto)
-
-                def calcular_evolucao_trimestral(desempenho_anterior, desempenho_atual, criterio=90):
-                    if pd.isna(desempenho_atual): return "-"
-                    if desempenho_atual >= criterio: return "Atingiu (ATG)"
-                    if pd.isna(desempenho_anterior): return "Em Avaliação"
-                    if desempenho_atual > desempenho_anterior + 5: return "Avançou (AVA)"
-                    if desempenho_atual < desempenho_anterior - 5: return "Agravou (AGR)"
-                    return "Estabilizou (EST)"
-
-                def limpar_texto_pei(texto):
-                    texto = str(texto)
-                    substituicoes = {
-                        "": "",
-                        "": "",
-                        "": "",
-                        "": "",
-                        "": "",
-                        "": "",
-                        "": "",
-                        "": "",
-                        "": "",
-                        "•": "-",
-                    }
-                    for antigo, novo in substituicoes.items():
-                        texto = texto.replace(antigo, novo)
-                    return re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]\ufe0f?", "", texto).strip()
-
-                def limpar_nome_objetivo(texto):
-                    texto = limpar_texto_pei(texto)
-                    return re.sub(r'\s*\([^)]*\)', '', texto).strip()
-
-                def resposta_ia_invalida(texto):
-                    texto_limpo = str(texto or "").strip()
-                    texto_cf = texto_limpo.casefold()
-                    marcadores_bloqueados = [
-                        "```",
-                        "{",
-                        "}",
-                        "[",
-                        "]",
-                        "json",
-                        "python",
-                        "summary",
-                        "behavior",
-                        "patient_context",
-                        "fontes_recuperadas",
-                        "dados_do_paciente",
-                        "response",
-                    ]
-                    return not texto_limpo or any(marcador in texto_cf for marcador in marcadores_bloqueados)
-
-                def filtrar_periodo_pei(df, inicio, fim_exclusivo):
-                    if df is None or df.empty or "date" not in df.columns:
-                        return pd.DataFrame() if df is None else df.copy()
-                    df_periodo = df.copy()
-                    df_periodo["date_pd"] = pd.to_datetime(df_periodo["date"], errors="coerce")
-                    df_periodo = df_periodo.dropna(subset=["date_pd"])
-                    return df_periodo[
-                        (df_periodo["date_pd"] >= pd.Timestamp(inicio))
-                        & (df_periodo["date_pd"] < pd.Timestamp(fim_exclusivo))
-                    ].copy()
-
                 def carregar_alvos_programas_pei(programas):
                     todos_alvos = []
                     for prog in programas:
@@ -651,1363 +585,12 @@ else:
                             todos_alvos.append(alvos)
                     return pd.concat(todos_alvos, ignore_index=True) if todos_alvos else pd.DataFrame()
 
-                def limiar_programa_pei(programa, df_lib, padrao=90):
-                    if df_lib.empty or "name" not in df_lib.columns or not programa:
-                        return padrao
-                    registros = df_lib[df_lib["name"] == programa]
-                    if registros.empty:
-                        return padrao
-                    valor = registros.iloc[0].get("mastery_threshold_percent", padrao)
-                    return float(valor) if pd.notna(valor) else padrao
-
-                def status_por_independencia(inicial, atual, limiar=90):
-                    if pd.isna(atual):
-                        return "Sem registro"
-                    if atual >= limiar:
-                        return "Atingiu"
-                    if pd.isna(inicial):
-                        return "Em avaliação"
-                    if atual > inicial + 5:
-                        return "Avançou"
-                    if atual < inicial - 5:
-                        return "Agravou"
-                    return "Estabilizou"
-
-                def preparar_alvos_programa(df_alvos, programa):
-                    if (
-                        df_alvos is None
-                        or df_alvos.empty
-                        or "programa" not in df_alvos.columns
-                        or "target_name" not in df_alvos.columns
-                    ):
-                        return pd.DataFrame()
-                    df_prog_alvos = df_alvos[df_alvos["programa"] == programa].copy()
-                    if df_prog_alvos.empty:
-                        return pd.DataFrame()
-                    if "date_pd" not in df_prog_alvos.columns and "date" in df_prog_alvos.columns:
-                        df_prog_alvos["date_pd"] = pd.to_datetime(df_prog_alvos["date"], errors="coerce")
-                    if "independent_rate" in df_prog_alvos.columns:
-                        df_prog_alvos["independent_rate"] = pd.to_numeric(df_prog_alvos["independent_rate"], errors="coerce")
-                    if "phase" not in df_prog_alvos.columns:
-                        df_prog_alvos["phase"] = ""
-                    return df_prog_alvos
-
-                def resumo_alvos_programa(df_alvos, programa, df_lib, df_alvos_periodo=None):
-                    colunas = ["Alvo", "LinhaBase", "Periodo", "Resumo", "Status"]
-                    df_prog_alvos = preparar_alvos_programa(df_alvos, programa)
-                    df_prog_periodo = preparar_alvos_programa(df_alvos_periodo if df_alvos_periodo is not None else df_alvos, programa)
-                    if df_prog_periodo.empty:
-                        return pd.DataFrame(columns=colunas)
-
-                    limiar = limiar_programa_pei(programa, df_lib)
-                    rows = []
-                    for alvo, grupo_periodo in df_prog_periodo.groupby("target_name"):
-                        grupo_todos = df_prog_alvos[df_prog_alvos["target_name"] == alvo].copy()
-                        if grupo_todos.empty:
-                            grupo_todos = grupo_periodo.copy()
-                        grupo_todos = grupo_todos.sort_values("date_pd") if "date_pd" in grupo_todos.columns else grupo_todos.copy()
-                        grupo_periodo = grupo_periodo.sort_values("date_pd") if "date_pd" in grupo_periodo.columns else grupo_periodo.copy()
-
-                        serie_todos = grupo_todos["independent_rate"].dropna() if "independent_rate" in grupo_todos.columns else pd.Series(dtype=float)
-                        serie_periodo = grupo_periodo["independent_rate"].dropna() if "independent_rate" in grupo_periodo.columns else pd.Series(dtype=float)
-                        mask_lb = grupo_todos["phase"].astype(str).str.contains(r"linha de base|\blb\b|baseline|sondagem", case=False, na=False)
-                        serie_lb = grupo_todos.loc[mask_lb, "independent_rate"].dropna() if "independent_rate" in grupo_todos.columns else pd.Series(dtype=float)
-                        inicial = serie_lb.mean() if not serie_lb.empty else (serie_todos.iloc[0] if not serie_todos.empty else pd.NA)
-                        atual = serie_periodo.iloc[-1] if not serie_periodo.empty else pd.NA
-                        media_ind = serie_periodo.mean() if not serie_periodo.empty else pd.NA
-                        linha_base_txt = f"{inicial:.1f}% de independência na linha de base" if pd.notna(inicial) else "linha de base sem registro percentual"
-                        periodo_txt = f"{media_ind:.1f}% de independência no período observado" if pd.notna(media_ind) else "período observado sem registro percentual"
-                        rows.append({
-                            "Alvo": limpar_texto_pei(alvo),
-                            "LinhaBase": linha_base_txt,
-                            "Periodo": periodo_txt,
-                            "Resumo": f"{linha_base_txt}; {periodo_txt}",
-                            "Status": status_por_independencia(inicial, atual, limiar),
-                        })
-                    return pd.DataFrame(rows, columns=colunas).sort_values(["Status", "Alvo"]).reset_index(drop=True)
-
-                def resumo_objetivos_por_area(areas):
-                    rows = []
-                    for area_num, itens in areas.items():
-                        for item_index, item in enumerate(itens):
-                            rows.append({
-                                "Objetivo": f"Objetivo {area_num}.{item_index + 1}",
-                                "Descrição": limpar_texto_pei(item.get("texto", "")),
-                            })
-                        if not itens:
-                            rows.append({
-                                "Objetivo": "-",
-                                "Descrição": "Sem objetivos cadastrados para esta área.",
-                            })
-                    return pd.DataFrame(rows, columns=["Objetivo", "Descrição"])
-
-                def formatar_lista_alvos_corrida(alvos):
-                    if alvos.empty:
-                        return "Sem alvos trabalhados no período"
-                    partes = []
-                    for _, alvo_row in alvos.iterrows():
-                        alvo = limpar_texto_pei(alvo_row.get("Alvo", ""))
-                        resumo = limpar_texto_pei(alvo_row.get("Resumo", ""))
-                        partes.append(f"{alvo} ({resumo})")
-                    return "; ".join(partes)
-
-                def status_geral_alvos(alvos):
-                    if alvos.empty:
-                        return "Sem registro"
-                    prioridades = {"Agravou": 0, "Estabilizou": 1, "Em avaliação": 2, "Avançou": 3, "Atingiu": 4}
-                    return sorted(
-                        alvos["Status"].tolist(),
-                        key=lambda status: prioridades.get(str(status), 2),
-                        reverse=True,
-                    )[0]
-
-                def periodo_aplicacao_programa(df_hist, programa, periodo_inicio, periodo_fim):
-                    if df_hist is None or df_hist.empty or not programa or "programa" not in df_hist.columns or "date" not in df_hist.columns:
-                        return f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
-                    hist = df_hist[df_hist["programa"] == programa].copy()
-                    if hist.empty:
-                        return f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
-                    hist["date_pd"] = pd.to_datetime(hist["date"], errors="coerce")
-                    hist = hist.dropna(subset=["date_pd"])
-                    if hist.empty:
-                        return f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
-
-                    inicio_ts = pd.Timestamp(periodo_inicio)
-                    fim_ts = pd.Timestamp(periodo_fim)
-                    hist_periodo = hist[(hist["date_pd"] >= inicio_ts) & (hist["date_pd"] <= fim_ts)]
-                    if hist_periodo.empty:
-                        return f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
-
-                    primeira = hist_periodo["date_pd"].min()
-                    ultima = hist_periodo["date_pd"].max()
-                    inicio_real = max(inicio_ts, primeira)
-                    fim_real = ultima
-                    return f"{inicio_real.strftime('%d/%m/%Y')} a {fim_real.strftime('%d/%m/%Y')}"
-
-                def texto_desempenho_inicial(valor):
-                    return f"{valor:.1f}% de independência na linha de base" if pd.notna(valor) else "Linha de base sem registro percentual"
-
-                def resumo_alvos_por_objetivo(areas, df_hist, df_alvos, df_alvos_periodo, df_lib, periodo_inicio, periodo_fim):
-                    rows = []
-                    periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
-                    for area_num, itens in areas.items():
-                        for item_index, item in enumerate(itens):
-                            codigo = f"Objetivo {area_num}.{item_index + 1}"
-                            programa = item.get("programa", "")
-                            limiar = limiar_programa_pei(programa, df_lib)
-                            linha_de_base, _ = desempenho_trimestral_para_programa(programa, df_hist, limiar)
-                            desempenho_inicial = f"{linha_de_base:.1f}%" if pd.notna(linha_de_base) else "-"
-                            alvos = resumo_alvos_programa(df_alvos, programa, df_lib, df_alvos_periodo)
-                            rows.append({
-                                "Objetivo": codigo,
-                                "Período avaliado": periodo,
-                                "Desempenho inicial": desempenho_inicial,
-                                "Alvos trabalhados": formatar_lista_alvos_corrida(alvos),
-                                "Status": status_geral_alvos(alvos),
-                            })
-                    return pd.DataFrame(rows, columns=["Objetivo", "Período avaliado", "Desempenho inicial", "Alvos trabalhados", "Status"])
-
-                def aplicar_fonte_pei(doc):
-                    for style_name in ["Normal", "Title", "Heading 1", "Heading 2", "Heading 3"]:
-                        try:
-                            style = doc.styles[style_name]
-                            style.font.name = "Times New Roman"
-                            style.font.size = Pt(12)
-                            style.font.color.rgb = RGBColor(0, 0, 0)
-                            style._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
-                        except Exception:
-                            pass
-
-                    def formatar_paragrafo(paragraph):
-                        for run in paragraph.runs:
-                            if run._element.xpath(".//*[local-name()='drawing']") or run._element.xpath(".//*[local-name()='pict']"):
-                                continue
-                            run.text = limpar_texto_pei(run.text)
-                            run.font.name = "Times New Roman"
-                            run.font.size = Pt(12)
-                            run.font.color.rgb = RGBColor(0, 0, 0)
-                            try:
-                                run._element.rPr.rFonts.set(qn("w:eastAsia"), "Times New Roman")
-                            except Exception:
-                                pass
-
-                    for paragraph in doc.paragraphs:
-                        formatar_paragrafo(paragraph)
-                    for table in doc.tables:
-                        for row in table.rows:
-                            for cell in row.cells:
-                                for paragraph in cell.paragraphs:
-                                    formatar_paragrafo(paragraph)
-
-                def texto_objetivo_programa(row):
-                    objetivo = verificar_alvos_clean(row.get("objective", ""))
-                    programa = str(row.get("programa", "")).strip()
-                    if objetivo and objetivo != "Descrição não informada.":
-                        return objetivo
-                    return programa or "Objetivo não informado."
-
-                def classificar_area_pei(programa, objetivo):
-                    texto = f"{programa} {objetivo}".lower()
-                    if any(chave in texto for chave in ["avd", "vida diária", "vida diaria", "higiene", "banheiro", "vestir", "aliment", "escovar", "lavar"]):
-                        return 5
-                    if any(chave in texto for chave in ["social", "turno", "grupo", "espera", "compartilhar", "interferente", "comportamento", "crise", "fuga"]):
-                        return 4
-                    if any(chave in texto for chave in ["brinc", "jogo", "brinquedo", "faz de conta", "lúdico", "ludico"]):
-                        return 3
-                    if any(chave in texto for chave in ["recept", "ouvinte", "instru", "discrimina", "identificar", "apontar", "parear"]):
-                        return 2
-                    return 1
-
-                def distribuir_objetivos_por_area(df_prog, df_beh):
-                    areas = {1: [], 2: [], 3: [], 4: [], 5: []}
-                    df_prog_unicos = df_prog.drop_duplicates(subset=["programa"]) if not df_prog.empty else pd.DataFrame()
-                    for _, row in df_prog_unicos.iterrows():
-                        programa = str(row.get("programa", "")).strip()
-                        objetivo = texto_objetivo_programa(row)
-                        area = classificar_area_pei(programa, objetivo)
-                        areas[area].append({"programa": programa, "texto": objetivo})
-
-                    if not df_beh.empty and "comportamento" in df_beh.columns:
-                        comportamentos = sorted([str(valor) for valor in df_beh["comportamento"].dropna().unique() if str(valor).strip()])
-                        if comportamentos:
-                            texto = (
-                                "Reduzir a taxa dos comportamentos interferentes monitorados "
-                                f"({', '.join(comportamentos[:8])}) com base nos registros clínicos do período."
-                            )
-                            areas[4].insert(0, {"programa": "Comportamentos interferentes", "texto": texto})
-                    return areas
-
-                def set_cell_text(cell, text):
-                    cell.text = limpar_texto_pei(text)
-
-                def aplicar_estilo_tabela_seguro(table, nomes=("Table Grid", "Tabela Grade", "Grade da Tabela")):
-                    for nome in nomes:
-                        try:
-                            table.style = nome
-                            return
-                        except KeyError:
-                            continue
-                        except Exception:
-                            return
-
-                def aplicar_bordas_grade_tabela(table, color="000000", size="8"):
-                    for row in table.rows:
-                        for cell in row.cells:
-                            tc_pr = cell._tc.get_or_add_tcPr()
-                            tc_borders = tc_pr.first_child_found_in("w:tcBorders")
-                            if tc_borders is None:
-                                tc_borders = OxmlElement("w:tcBorders")
-                                tc_pr.append(tc_borders)
-                            for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
-                                tag = f"w:{edge}"
-                                element = tc_borders.find(qn(tag))
-                                if element is None:
-                                    element = OxmlElement(tag)
-                                    tc_borders.append(element)
-                                element.set(qn("w:val"), "single")
-                                element.set(qn("w:sz"), size)
-                                element.set(qn("w:space"), "0")
-                                element.set(qn("w:color"), color)
-
-                def limpar_linhas_tabela(table):
-                    while len(table.rows) > 1:
-                        table._tbl.remove(table.rows[-1]._tr)
-                    for row in table.rows:
-                        for cell in row.cells:
-                            cell.text = ""
-
-                def garantir_colunas_tabela(table, total_colunas):
-                    while len(table.rows[0].cells) < total_colunas:
-                        table.add_column(Inches(1.1))
-
-                def deixar_celula_negrito(cell):
-                    for paragraph in cell.paragraphs:
-                        for run in paragraph.runs:
-                            run.bold = True
-
-                def aplicar_cor_fundo_celula(cell, color):
-                    tc_pr = cell._tc.get_or_add_tcPr()
-                    shd = tc_pr.find(qn("w:shd"))
-                    if shd is None:
-                        shd = OxmlElement("w:shd")
-                        tc_pr.append(shd)
-                    shd.set(qn("w:fill"), color)
-
-                def cor_status_pei(status):
-                    status_cf = str(status or "").casefold()
-                    if "atingiu" in status_cf or "atingido" in status_cf:
-                        return "C6EFCE"
-                    if "avançou" in status_cf or "avancou" in status_cf:
-                        return "BDD7EE"
-                    if "estabilizou" in status_cf or "estagnou" in status_cf:
-                        return "FFF2CC"
-                    if "agravou" in status_cf:
-                        return "F4CCCC"
-                    return "E7E6E6"
-
-                def cor_status_css_pei(status):
-                    return f"background-color: #{cor_status_pei(status)}"
-
-                def estilizar_status_preview_pei(df):
-                    styler = df.style
-                    if hasattr(styler, "map"):
-                        return styler.map(cor_status_css_pei, subset=["Status"])
-                    return styler.apply(
-                        lambda coluna: [cor_status_css_pei(valor) for valor in coluna],
-                        subset=["Status"],
-                    )
-
-                def preencher_tabela_objetivos(table, area_num, itens):
-                    garantir_colunas_tabela(table, 2)
-                    limpar_linhas_tabela(table)
-
-                    headers = ["Objetivo", "Descrição"]
-                    for idx, header in enumerate(headers):
-                        set_cell_text(table.rows[0].cells[idx], header)
-                        deixar_celula_negrito(table.rows[0].cells[idx])
-
-                    for item_index, item in enumerate(itens):
-                        cells = table.add_row().cells
-                        set_cell_text(cells[0], f"Objetivo {area_num}.{item_index + 1}")
-                        set_cell_text(cells[1], item.get("texto", ""))
-                        deixar_celula_negrito(cells[0])
-
-                    if not itens:
-                        cells = table.add_row().cells
-                        set_cell_text(cells[0], "-")
-                        set_cell_text(cells[1], "Sem objetivos cadastrados para esta área.")
-
-                    aplicar_estilo_tabela_seguro(table)
-                    aplicar_bordas_grade_tabela(table)
-
-                def desempenho_trimestral_para_programa(programa, df_hist, limiar=90):
-                    if df_hist.empty or not programa:
-                        return None, []
-                    hist = df_hist[df_hist["programa"] == programa].copy()
-                    if hist.empty:
-                        return None, []
-                    hist["date_pd"] = pd.to_datetime(hist["date"], errors="coerce")
-                    hist = hist.dropna(subset=["date_pd"]).sort_values("date_pd")
-                    if hist.empty:
-                        return None, []
-                    if "phase" not in hist.columns:
-                        hist["phase"] = ""
-                    mask_lb = hist["phase"].astype(str).str.contains(r"linha de base|\blb\b|baseline|sondagem", case=False, na=False)
-                    linha_de_base = hist[mask_lb]["independent_rate"].mean() if not hist[mask_lb].empty else hist["independent_rate"].iloc[0]
-
-                    trimestres = [
-                        (START_DATE, START_DATE + timedelta(days=90), "1. DATA"),
-                        (START_DATE + timedelta(days=90), START_DATE + timedelta(days=180), "2. DATA"),
-                        (START_DATE + timedelta(days=180), START_DATE + timedelta(days=270), "3. DATA"),
-                        (START_DATE + timedelta(days=270), START_DATE + timedelta(days=360), "4. DATA"),
-                    ]
-                    desempenho_anterior = linha_de_base
-                    linhas = []
-                    for ini, fim, rotulo in trimestres:
-                        df_tri = hist[(hist["date_pd"] >= pd.Timestamp(ini)) & (hist["date_pd"] < pd.Timestamp(fim))]
-                        if df_tri.empty:
-                            linhas.append((rotulo, "-", "Sem avaliações"))
-                            continue
-                        media = df_tri["independent_rate"].mean()
-                        codigo = calcular_evolucao_trimestral(desempenho_anterior, media, limiar)
-                        linhas.append((rotulo.replace("DATA", fim.strftime("%d/%m/%Y")), f"{media:.1f}%", codigo))
-                        desempenho_anterior = media
-                    return linha_de_base, linhas
-
-                def preencher_tabela_desempenho(table, area_num, itens, df_hist, df_alvos, df_alvos_periodo, df_lib, periodo_inicio, periodo_fim):
-                    garantir_colunas_tabela(table, 4)
-                    limpar_linhas_tabela(table)
-
-                    headers = ["Objetivo", "Período avaliado", "Desempenho inicial", "Status"]
-                    for idx, header in enumerate(headers):
-                        set_cell_text(table.rows[0].cells[idx], header)
-                        deixar_celula_negrito(table.rows[0].cells[idx])
-
-                    periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
-                    if not itens:
-                        row = table.add_row()
-                        set_cell_text(row.cells[0], "-")
-                        set_cell_text(row.cells[1], periodo)
-                        set_cell_text(row.cells[2], "-")
-                        set_cell_text(row.cells[3], "Sem registro")
-                        aplicar_cor_fundo_celula(row.cells[3], cor_status_pei("Sem registro"))
-                        row_alvos = table.add_row()
-                        set_cell_text(row_alvos.cells[0], "Alvos trabalhados")
-                        merged = row_alvos.cells[1].merge(row_alvos.cells[3])
-                        set_cell_text(merged, "Sem alvos trabalhados no período")
-                    else:
-                        for item_index, item in enumerate(itens):
-                            programa = item.get("programa", "")
-                            limiar = limiar_programa_pei(programa, df_lib)
-                            linha_de_base, _ = desempenho_trimestral_para_programa(programa, df_hist, limiar)
-                            desempenho_inicial = f"{linha_de_base:.1f}%" if pd.notna(linha_de_base) else "-"
-                            codigo = f"Objetivo {area_num}.{item_index + 1}"
-                            alvos = resumo_alvos_programa(df_alvos, programa, df_lib, df_alvos_periodo)
-                            status_geral = status_geral_alvos(alvos)
-
-                            row = table.add_row()
-                            set_cell_text(row.cells[0], codigo)
-                            set_cell_text(row.cells[1], periodo)
-                            set_cell_text(row.cells[2], desempenho_inicial)
-                            set_cell_text(row.cells[3], status_geral)
-                            deixar_celula_negrito(row.cells[0])
-                            aplicar_cor_fundo_celula(row.cells[3], cor_status_pei(status_geral))
-
-                            row_alvos = table.add_row()
-                            set_cell_text(row_alvos.cells[0], "Alvos trabalhados")
-                            deixar_celula_negrito(row_alvos.cells[0])
-                            merged = row_alvos.cells[1].merge(row_alvos.cells[3])
-                            set_cell_text(merged, formatar_lista_alvos_corrida(alvos))
-                            aplicar_cor_fundo_celula(merged, cor_status_pei(status_geral))
-
-                    aplicar_estilo_tabela_seguro(table)
-                    aplicar_bordas_grade_tabela(table)
-
-                def coletar_evolucoes_periodo(df_hist_periodo, df_alvos_periodo, df_beh_periodo, limite=30):
-                    itens = []
-                    fontes = [
-                        (df_hist_periodo, "programa", "programa"),
-                        (df_alvos_periodo, "alvo", "programa"),
-                        (df_beh_periodo, "interferente", "comportamento"),
-                    ]
-                    for df_fonte, tipo, nome_col in fontes:
-                        if df_fonte.empty or "evolution" not in df_fonte.columns:
-                            continue
-                        for _, row in df_fonte.iterrows():
-                            texto = limpar_texto_pei(row.get("evolution", ""))
-                            if not texto or texto in {"0", "0.0", "nan", "None"}:
-                                continue
-                            nome = limpar_texto_pei(row.get(nome_col, ""))
-                            alvo = limpar_texto_pei(row.get("target_name", "")) if tipo == "alvo" else ""
-                            data = row.get("date", "")
-                            label = f"{tipo}: {nome}"
-                            if alvo:
-                                label += f" / {alvo}"
-                            itens.append(f"- {label}; data={data}; evolucao={texto}")
-                    return "\n".join(itens[:limite])
-
-                def gerar_resumo_trimestral_local(df_hist_periodo, df_alvos_periodo, df_beh_periodo, objetivo_grafico, inicio, fim):
-                    periodo = f"{inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}"
-                    partes = [f"Analise do periodo de {periodo}."]
-
-                    df_obj = df_hist_periodo.copy()
-                    if objetivo_grafico != "Media geral dos objetivos" and not df_obj.empty:
-                        df_obj = df_obj[df_obj["programa"] == objetivo_grafico]
-
-                    if not df_obj.empty:
-                        media_ind = df_obj["independent_rate"].mean()
-                        programas = df_obj["programa"].nunique() if "programa" in df_obj.columns else 0
-                        alvo_txt = objetivo_grafico if objetivo_grafico != "Media geral dos objetivos" else f"{programas} objetivos monitorados"
-                        trecho = f"No periodo, {alvo_txt} apresentou media de independencia de {media_ind:.1f}%"
-                        partes.append(trecho + ".")
-                    else:
-                        partes.append("Nao houve registros de objetivos no ciclo selecionado.")
-
-                    if not df_alvos_periodo.empty and "target_name" in df_alvos_periodo.columns:
-                        total_alvos = df_alvos_periodo["target_name"].nunique()
-                        media_alvos = df_alvos_periodo["independent_rate"].mean() if "independent_rate" in df_alvos_periodo.columns else None
-                        if pd.notna(media_alvos):
-                            partes.append(f"Foram registrados {total_alvos} alvos no periodo, com media de independencia de {media_alvos:.1f}%.")
-                        else:
-                            partes.append(f"Foram registrados {total_alvos} alvos no periodo.")
-
-                    if not df_beh_periodo.empty and "comportamento" in df_beh_periodo.columns:
-                        total = df_beh_periodo["count"].sum() if "count" in df_beh_periodo.columns else 0
-                        taxa = df_beh_periodo["rate"].mean() if "rate" in df_beh_periodo.columns else None
-                        principais = ", ".join(
-                            df_beh_periodo.groupby("comportamento")["count"].sum().sort_values(ascending=False).head(3).index.astype(str)
-                        ) if "count" in df_beh_periodo.columns else ", ".join(df_beh_periodo["comportamento"].dropna().astype(str).unique()[:3])
-                        trecho = f"Os comportamentos interferentes somaram {total:.0f} ocorrencias"
-                        if pd.notna(taxa):
-                            trecho += f", com taxa media de {taxa:.2f}"
-                        if principais:
-                            trecho += f". Principais registros: {principais}"
-                        partes.append(trecho + ".")
-                    else:
-                        partes.append("Nao houve comportamentos interferentes registrados no ciclo selecionado.")
-
-                    evolucoes = coletar_evolucoes_periodo(df_hist_periodo, df_alvos_periodo, df_beh_periodo, limite=12)
-                    if evolucoes:
-                        partes.append("Evolucoes registradas no periodo:\n" + evolucoes)
-
-                    return "\n\n".join(partes)
-
-                def gerar_texto_trimestral_pei(nome_paciente, df_hist_periodo, df_alvos_periodo, df_beh_periodo, objetivo_grafico, inicio, fim):
-                    resumo_local = gerar_resumo_trimestral_local(
-                        df_hist_periodo, df_alvos_periodo, df_beh_periodo, objetivo_grafico, inicio, fim
-                    )
-                    if not usar_ia_texto_pei:
-                        return resumo_local
-
-                    pergunta = (
-                        "Responda exclusivamente em portugues brasileiro, em paragrafo corrido. "
-                        "Nao use codigo, JSON, markdown, listas tecnicas, nomes de variaveis ou termos em ingles. "
-                        "Responda apenas com o texto final do PEI, sem repetir estas instrucoes. "
-                        f"Periodo analisado: {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}. "
-                        "Com base nas evolucoes registradas pelos terapeutas no periodo, redija um resumo clinico "
-                        "tecnico, cauteloso e objetivo, organizado nestes dois eixos:\n"
-                        "1. Avanco no aprendizado das habilidades: descreva a aquisicao de repertorio, marcos "
-                        "alcancados, desempenho nos alvos e progressos nos programas de habilidades.\n"
-                        "2. Avanco comportamental: descreva o manejo, a topografia e a reducao (ou agravamento) "
-                        "dos comportamentos interferentes monitorados no periodo.\n"
-                        "Use apenas os dados e evolucoes reais do periodo. "
-                        "Nao invente informacoes e nao cite nomes de terapeutas. "
-                        f"Objetivo em destaque: {objetivo_grafico}."
-                    )
-                    def parece_prompt_ia(texto):
-                        texto_cf = str(texto or "").casefold()
-                        marcadores_prompt = [
-                            "responda apenas com o texto final do pei",
-                            "avanco no aprendizado das habilidades: descreva",
-                            "avanco comportamental: descreva o manejo",
-                            "objetivo em destaque:",
-                            "voce e um assistente especialista",
-                            "diretrizes de comportamento",
-                            "fontes_recuperadas_nao_confiaveis",
-                            "dados_do_paciente_nao_confiaveis",
-                        ]
-                        return any(marcador in texto_cf for marcador in marcadores_prompt)
-
-                    try:
-                        resposta = ask_clinical_agent(nome_paciente, pergunta, start_date=inicio, end_date=fim)
-                        modo = str(resposta.get("modo", "")).casefold()
-                        if modo in {"busca_local", "busca_local_fallback", "limite_ia", "sem_resultados"}:
-                            return resumo_local
-                        texto = limpar_texto_pei(resposta.get("resposta", ""))
-                        if texto and not parece_prompt_ia(texto) and not resposta_ia_invalida(texto):
-                            return texto
-                    except Exception as exc:
-                        st.warning(f"Nao foi possivel gerar o texto com IA. Usei um resumo automatico local. Detalhe: {exc}")
-                    return resumo_local
-
-                def gerar_resumo_comportamentos_problema_local(df_beh_periodo, inicio, fim):
-                    periodo = f"{inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}"
-                    if df_beh_periodo.empty or "comportamento" not in df_beh_periodo.columns:
-                        return f"No periodo de {periodo}, nao houve registros de comportamentos problema."
-
-                    partes = [f"Resumo dos comportamentos problema no periodo de {periodo}."]
-                    if "count" in df_beh_periodo.columns:
-                        total_por_comp = (
-                            df_beh_periodo.groupby("comportamento")["count"]
-                            .sum()
-                            .sort_values(ascending=False)
-                        )
-                        if not total_por_comp.empty:
-                            principais = "; ".join([f"{comp}: {valor:.0f} ocorrencias" for comp, valor in total_por_comp.head(5).items()])
-                            partes.append(f"Maiores registros quantitativos: {principais}.")
-                    if "rate" in df_beh_periodo.columns:
-                        taxa_por_comp = (
-                            df_beh_periodo.groupby("comportamento")["rate"]
-                            .mean()
-                            .sort_values(ascending=False)
-                        )
-                        if not taxa_por_comp.empty:
-                            taxas = "; ".join([f"{comp}: taxa media {valor:.2f}" for comp, valor in taxa_por_comp.head(5).items()])
-                            partes.append(f"Taxas medias observadas: {taxas}.")
-
-                    evolucoes = coletar_evolucoes_periodo(pd.DataFrame(), pd.DataFrame(), df_beh_periodo, limite=10)
-                    if evolucoes:
-                        partes.append("Evolucoes relevantes registradas no periodo:\n" + evolucoes)
-                    else:
-                        partes.append("Nao foram encontradas evolucoes textuais especificas para os comportamentos no periodo.")
-                    return "\n\n".join(partes)
-
-                def gerar_resumo_comportamentos_problema_pei(nome_paciente, df_beh_periodo, inicio, fim):
-                    resumo_local = gerar_resumo_comportamentos_problema_local(df_beh_periodo, inicio, fim)
-                    if not usar_ia_texto_pei:
-                        return resumo_local
-
-                    evolucoes = coletar_evolucoes_periodo(pd.DataFrame(), pd.DataFrame(), df_beh_periodo, limite=20)
-                    pergunta = (
-                        "Responda exclusivamente em portugues brasileiro, em paragrafo corrido. "
-                        "Nao use codigo, JSON, markdown, listas tecnicas, nomes de variaveis ou termos em ingles. "
-                        "Responda apenas com o texto final para o PEI. "
-                        "Faca um resumo tecnico, objetivo e cauteloso dos comportamentos problema/interferentes "
-                        "do periodo selecionado. Use os registros de evolucao para filtrar o que de fato ocorreu, "
-                        "sem inventar informacoes e sem citar nomes de terapeutas. "
-                        "Destaque padroes observaveis, comportamentos mais frequentes ou relevantes, possiveis "
-                        "contextos mencionados nas evolucoes e impacto sobre os objetivos quando houver dados. "
-                        f"Periodo: {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}. "
-                        f"Resumo automatico dos dados: {resumo_local[:1800]} "
-                        f"Evolucoes do periodo: {evolucoes[:1500]}"
-                    )
-                    try:
-                        resposta = ask_clinical_agent(nome_paciente, pergunta, start_date=inicio, end_date=fim)
-                        modo = str(resposta.get("modo", "")).casefold()
-                        if modo in {"busca_local", "busca_local_fallback", "limite_ia", "sem_resultados"}:
-                            return resumo_local
-                        texto = limpar_texto_pei(resposta.get("resposta", ""))
-                        if texto and not resposta_ia_invalida(texto):
-                            return texto
-                    except Exception as exc:
-                        st.warning(f"Nao foi possivel gerar o resumo dos comportamentos com IA. Usei um resumo local. Detalhe: {exc}")
-                    return resumo_local
-
-                def adicionar_texto_trimestral(doc, texto, inicio, fim):
-                    doc.add_page_break()
-                    doc.add_heading("Analise dos objetivos no periodo", level=1)
-                    p_periodo = doc.add_paragraph()
-                    p_periodo.add_run("Periodo: ").bold = True
-                    p_periodo.add_run(f"{inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}")
-
-                    texto_limpo = limpar_texto_pei(texto)
-                    if not texto_limpo:
-                        texto_limpo = "Espaco reservado para descricao clinica do desempenho dos objetivos no periodo."
-                    for bloco in re.split(r"\n\s*\n", texto_limpo):
-                        if bloco.strip():
-                            doc.add_paragraph(bloco.strip())
-
-                def adicionar_resumo_clinico_periodo(doc, texto, inicio, fim):
-                    doc.add_page_break()
-                    doc.add_heading("Resumo clínico do período observado", level=1)
-                    p_periodo = doc.add_paragraph()
-                    p_periodo.add_run("Periodo observado: ").bold = True
-                    p_periodo.add_run(f"{inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}")
-
-                    texto_limpo = limpar_texto_pei(texto)
-                    if not texto_limpo:
-                        texto_limpo = "Sem registros suficientes para sintetizar o período observado."
-                    for bloco in re.split(r"\n\s*\n", texto_limpo):
-                        if bloco.strip():
-                            doc.add_paragraph(bloco.strip())
-
-                def adicionar_grafico_objetivo_periodo(doc, df_hist, objetivo_grafico, inicio, fim_exclusivo):
-                    doc.add_heading("Graficos dos objetivos", level=2)
-                    df_periodo = filtrar_periodo_pei(df_hist, inicio, fim_exclusivo)
-
-                    if df_periodo.empty:
-                        doc.add_paragraph("Sem registros de objetivos no periodo selecionado.")
-                        return
-
-                    df_obj = df_periodo.copy()
-                    titulo = "Media geral dos objetivos"
-                    if objetivo_grafico != "Media geral dos objetivos":
-                        df_selecionado = df_periodo[df_periodo["programa"] == objetivo_grafico].copy()
-                        if not df_selecionado.empty:
-                            df_obj = df_selecionado
-                            titulo = objetivo_grafico
-                        else:
-                            doc.add_paragraph(
-                                "O objetivo selecionado nao teve registros no periodo; abaixo seguem os objetivos com dados no periodo."
-                            )
-
-                    df_plot = (
-                        df_obj.groupby("date_pd", as_index=False)
-                        .agg({"independent_rate": "mean"})
-                        .sort_values("date_pd")
-                    )
-                    if df_plot.empty:
-                        doc.add_paragraph("Sem dados numericos suficientes para gerar o grafico do objetivo.")
-                        return
-
-                    plt.figure(figsize=(7, 4))
-                    plt.plot(df_plot["date_pd"], df_plot["independent_rate"], marker="o", label="Independencia")
-                    plt.title(limpar_texto_pei(titulo)[:90])
-                    plt.ylabel("Percentual")
-                    plt.ylim(0, 100)
-                    ax = plt.gca()
-                    ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m/%y"))
-                    plt.gcf().autofmt_xdate(rotation=45)
-                    plt.legend()
-                    plt.tight_layout()
-                    buf_obj = io.BytesIO()
-                    plt.savefig(buf_obj, format="png")
-                    plt.close()
-                    buf_obj.seek(0)
-                    doc.add_picture(buf_obj, width=Inches(5.7))
-
-                    df_barras = (
-                        df_periodo.groupby("programa", as_index=False)["independent_rate"]
-                        .mean()
-                        .sort_values("independent_rate", ascending=True)
-                        .tail(15)
-                    )
-                    if not df_barras.empty:
-                        plt.figure(figsize=(7, 5))
-                        plt.barh(df_barras["programa"], df_barras["independent_rate"], color="#2E86C1")
-                        plt.title("Media de independencia por objetivo no periodo")
-                        plt.xlabel("Independencia media (%)")
-                        plt.xlim(0, 100)
-                        plt.tight_layout()
-                        buf_bar = io.BytesIO()
-                        plt.savefig(buf_bar, format="png", dpi=160)
-                        plt.close()
-                        buf_bar.seek(0)
-                        doc.add_picture(buf_bar, width=Inches(5.8))
-
-                def adicionar_graficos_interferentes_periodo(doc, df_beh, inicio, fim_exclusivo):
-                    doc.add_heading("Graficos de comportamentos interferentes", level=2)
-                    df_beh_periodo = filtrar_periodo_pei(df_beh, inicio, fim_exclusivo)
-                    if df_beh_periodo.empty:
-                        doc.add_paragraph("Sem comportamentos interferentes registrados no periodo selecionado.")
-                        return
-
-                    if "count" in df_beh_periodo.columns:
-                        df_totais = df_beh_periodo.groupby("comportamento")["count"].sum().reset_index()
-                        if not df_totais.empty and df_totais["count"].sum() > 0:
-                            plt.figure(figsize=(6.5, 4))
-                            plt.bar(df_totais["comportamento"], df_totais["count"], color="#E74C3C")
-                            plt.title("Frequencia total no periodo")
-                            plt.xticks(rotation=45, ha="right")
-                            plt.tight_layout()
-                            buf_tot = io.BytesIO()
-                            plt.savefig(buf_tot, format="png")
-                            plt.close()
-                            buf_tot.seek(0)
-                            doc.add_picture(buf_tot, width=Inches(5.3))
-
-                    if "rate" in df_beh_periodo.columns:
-                        df_taxa = df_beh_periodo.groupby("comportamento")["rate"].mean().reset_index()
-                        if not df_taxa.empty and df_taxa["rate"].sum() > 0:
-                            plt.figure(figsize=(6.5, 4))
-                            plt.bar(df_taxa["comportamento"], df_taxa["rate"], color="#F39C12")
-                            plt.title("Taxa media no periodo")
-                            plt.xticks(rotation=45, ha="right")
-                            plt.tight_layout()
-                            buf_taxa = io.BytesIO()
-                            plt.savefig(buf_taxa, format="png")
-                            plt.close()
-                            buf_taxa.seek(0)
-                            doc.add_picture(buf_taxa, width=Inches(5.3))
-
-                    plt.figure(figsize=(7, 4))
-                    for comportamento in df_beh_periodo["comportamento"].dropna().unique():
-                        df_c = df_beh_periodo[df_beh_periodo["comportamento"] == comportamento].sort_values("date_pd")
-                        y_col = "rate" if "rate" in df_c.columns else "count"
-                        plt.plot(df_c["date_pd"], df_c[y_col], marker="o", label=str(comportamento))
-                    plt.title("Evolucao dos interferentes no periodo")
-                    ax = plt.gca()
-                    ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
-                    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m/%y"))
-                    plt.gcf().autofmt_xdate(rotation=45)
-                    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-                    plt.tight_layout()
-                    buf_linha = io.BytesIO()
-                    plt.savefig(buf_linha, format="png")
-                    plt.close()
-                    buf_linha.seek(0)
-                    doc.add_picture(buf_linha, width=Inches(5.7))
-
-                def adicionar_graficos_modelo(doc, df_hist, df_alvos, df_beh, objetivo_grafico, periodo_inicio, periodo_fim_exclusivo):
-                    doc.add_page_break()
-                    doc.add_heading("ANEXOS GRÁFICOS", level=1)
-                    adicionar_grafico_objetivo_periodo(doc, df_hist, objetivo_grafico, periodo_inicio, periodo_fim_exclusivo)
-                    adicionar_graficos_interferentes_periodo(doc, df_beh, periodo_inicio, periodo_fim_exclusivo)
-
-                    if not df_hist.empty:
-                        doc.add_heading("Resumo geral dos programas", level=2)
-                        df_graf = df_hist.copy()
-                        df_graf["date_pd"] = pd.to_datetime(df_graf["date"], errors="coerce")
-                        df_graf = df_graf.dropna(subset=["date_pd"])
-                        if not df_graf.empty:
-                            df_linha = (
-                                df_graf.groupby("date_pd", as_index=False)
-                                .agg({"independent_rate": "mean", "prompt_rate": "mean"})
-                                .sort_values("date_pd")
-                            )
-                            if not df_linha.empty:
-                                plt.figure(figsize=(7, 4))
-                                plt.plot(df_linha["date_pd"], df_linha["independent_rate"], marker="o", label="Independência média")
-                                plt.plot(df_linha["date_pd"], df_linha["prompt_rate"], marker="o", label="Ajuda média")
-                                plt.title("Evolução média dos programas")
-                                plt.ylabel("Percentual")
-                                plt.ylim(0, 100)
-                                ax = plt.gca()
-                                ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
-                                ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m/%y"))
-                                plt.gcf().autofmt_xdate(rotation=45)
-                                plt.legend()
-                                plt.tight_layout()
-                                buf = io.BytesIO()
-                                plt.savefig(buf, format="png")
-                                plt.close()
-                                buf.seek(0)
-                                doc.add_picture(buf, width=Inches(5.7))
-
-                    if not df_beh.empty:
-                        df_beh_g = df_beh.copy()
-                        df_beh_g["date_pd"] = pd.to_datetime(df_beh_g["date"], errors="coerce")
-                        df_beh_g = df_beh_g.dropna(subset=["date_pd"])
-                        if not df_beh_g.empty:
-                            doc.add_heading("Comportamentos interferentes", level=2)
-                            df_totais = df_beh_g.groupby("comportamento")["count"].sum().reset_index()
-                            if not df_totais.empty:
-                                plt.figure(figsize=(6, 4))
-                                plt.bar(df_totais["comportamento"], df_totais["count"], color="#E74C3C")
-                                plt.title("Frequência total de ocorrências")
-                                plt.xticks(rotation=45, ha="right")
-                                plt.tight_layout()
-                                buf_tot = io.BytesIO()
-                                plt.savefig(buf_tot, format="png")
-                                plt.close()
-                                buf_tot.seek(0)
-                                doc.add_picture(buf_tot, width=Inches(5.2))
-
-                            if "rate" in df_beh_g.columns:
-                                df_taxa = df_beh_g.groupby("comportamento")["rate"].mean().reset_index()
-                                if not df_taxa.empty:
-                                    plt.figure(figsize=(6, 4))
-                                    plt.bar(df_taxa["comportamento"], df_taxa["rate"], color="#F39C12")
-                                    plt.title("Taxa média")
-                                    plt.xticks(rotation=45, ha="right")
-                                    plt.tight_layout()
-                                    buf_taxa = io.BytesIO()
-                                    plt.savefig(buf_taxa, format="png")
-                                    plt.close()
-                                    buf_taxa.seek(0)
-                                    doc.add_picture(buf_taxa, width=Inches(5.2))
-
-                            plt.figure(figsize=(7, 4))
-                            for comportamento in df_beh_g["comportamento"].dropna().unique():
-                                df_c = df_beh_g[df_beh_g["comportamento"] == comportamento].sort_values("date_pd")
-                                plt.plot(df_c["date_pd"], df_c["count"], marker="o", label=comportamento)
-                            plt.title("Evolução ao longo do tempo")
-                            ax = plt.gca()
-                            ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
-                            ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m/%y"))
-                            plt.gcf().autofmt_xdate(rotation=45)
-                            plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-                            plt.tight_layout()
-                            buf_linha = io.BytesIO()
-                            plt.savefig(buf_linha, format="png")
-                            plt.close()
-                            buf_linha.seek(0)
-                            doc.add_picture(buf_linha, width=Inches(5.7))
-
-                def gerar_doc_modelo_pei(
-                    nome_paciente,
-                    df_prog,
-                    df_hist,
-                    df_alvos,
-                    df_lib,
-                    df_beh,
-                    objetivo_grafico,
-                    periodo_inicio,
-                    periodo_fim,
-                    periodo_fim_exclusivo,
-                    texto_analise_trimestral,
-                    texto_resumo_comportamentos,
-                ):
-                    doc = Document(PEI_TEMPLATE_PATH)
-                    aplicar_fonte_pei(doc)
-                    areas = distribuir_objetivos_por_area(df_prog, df_beh)
-                    df_alvos_periodo = filtrar_periodo_pei(df_alvos, periodo_inicio, periodo_fim_exclusivo)
-
-                    if doc.tables:
-                        dados = (
-                            "DADOS DE IDENTIFICAÇÃO\n"
-                            f"Nome do(a) Aprendiz: {nome_paciente}\n"
-                            "Data de Nascimento: N/I | Idade: N/I\n"
-                            f"Data de Elaboração do Plano: {datetime.now().strftime('%m/%Y')}\n"
-                            "Equipe Responsável: Sistema Skinner\n"
-                            "Equipe Atual: Aplicável em caso de mudança de equipe\n"
-                            "Instrumento(s) de Avaliação Utilizado(s): bHave, ABLLS-R e registros clínicos\n"
-                            f"Data da Avaliação: {START_DATE.strftime('%d/%m/%Y')}\n"
-                            f"Data da Finalização: {datetime.now().strftime('%d/%m/%Y')}"
-                        )
-                        set_cell_text(doc.tables[0].cell(1, 0), dados)
-
-                    for area_num in range(1, 6):
-                        table_index = area_num
-                        if table_index < len(doc.tables):
-                            preencher_tabela_objetivos(
-                                doc.tables[table_index],
-                                area_num,
-                                areas.get(area_num, []),
-                            )
-
-                    desempenho_tables = {1: 6, 2: 7, 3: 8}
-                    for area_num, table_index in desempenho_tables.items():
-                        if table_index < len(doc.tables):
-                            preencher_tabela_desempenho(
-                                doc.tables[table_index],
-                                area_num,
-                                areas.get(area_num, []),
-                                df_hist,
-                                df_alvos,
-                                df_alvos_periodo,
-                                df_lib,
-                                periodo_inicio,
-                                periodo_fim,
-                            )
-
-                    adicionar_resumo_clinico_periodo(
-                        doc,
-                        texto_resumo_comportamentos,
-                        periodo_inicio,
-                        periodo_fim,
-                    )
-                    adicionar_graficos_modelo(doc, df_hist, df_alvos, df_beh, objetivo_grafico, periodo_inicio, periodo_fim_exclusivo)
-                    aplicar_fonte_pei(doc)
-                    buffer = io.BytesIO()
-                    doc.save(buffer)
-                    buffer.seek(0)
-                    return buffer
-
-                def gerar_doc_completo(
-                    nome_paciente,
-                    df_prog,
-                    df_hist,
-                    df_alvos,
-                    df_lib,
-                    df_beh,
-                    objetivo_grafico,
-                    periodo_inicio,
-                    periodo_fim,
-                    periodo_fim_exclusivo,
-                    texto_analise_trimestral,
-                    texto_resumo_comportamentos,
-                ):
-                    if os.path.exists(PEI_TEMPLATE_PATH):
-                        return gerar_doc_modelo_pei(
-                            nome_paciente,
-                            df_prog,
-                            df_hist,
-                            df_alvos,
-                            df_lib,
-                            df_beh,
-                            objetivo_grafico,
-                            periodo_inicio,
-                            periodo_fim,
-                            periodo_fim_exclusivo,
-                            texto_analise_trimestral,
-                            texto_resumo_comportamentos,
-                        )
-
-                    doc = Document()
-                    aplicar_fonte_pei(doc)
-                    
-                    status_objetivos = {"ATG": 0, "AVA": 0, "EST": 0, "AGR": 0, "-": 0}
-                    total_alvos_trabalhados = 0
-                    total_alvos_atingidos = 0
-                    
-                    title = doc.add_heading('PLANO DE ENSINO INDIVIDUALIZADO (PEI)', 0)
-                    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    
-                    doc.add_heading('DADOS DE IDENTIFICAÇÃO', level=1)
-                    t_id = doc.add_table(rows=4, cols=2)
-                    aplicar_estilo_tabela_seguro(t_id)
-                    t_id.rows[0].cells[0].text = f"Nome do(a) Aprendiz: {nome_paciente}"
-                    t_id.rows[1].cells[0].text = f"Data de Início da Análise: {START_DATE.strftime('%d/%m/%Y')}"
-                    t_id.rows[2].cells[0].text = f"Data do Relatório: {datetime.now().strftime('%d/%m/%Y')}"
-                    t_id.rows[3].cells[0].text = "Equipe Responsável: Sistema Skinner"
-
-                    df_alvos_periodo = filtrar_periodo_pei(df_alvos, periodo_inicio, periodo_fim_exclusivo)
-                    adicionar_resumo_clinico_periodo(
-                        doc,
-                        texto_resumo_comportamentos,
-                        periodo_inicio,
-                        periodo_fim,
-                    )
-
-                    doc.add_heading('OBJETIVOS DE INTERVENÇÃO', level=1)
-                    doc.add_paragraph("(As metas devem ser Específicas, Mensuráveis, Alcançáveis, Relevantes e com Prazo definido.)\n")
-
-                    df_prog_periodo = filtrar_periodo_pei(df_prog, periodo_inicio, periodo_fim_exclusivo)
-                    df_prog_unicos = df_prog_periodo.drop_duplicates(subset=['programa'])
-                    areas = distribuir_objetivos_por_area(df_prog_periodo, df_beh)
-
-                    for area_num in range(1, 6):
-                        doc.add_heading(f"Area {area_num}", level=2)
-                        tabela_area = doc.add_table(rows=1, cols=2)
-                        preencher_tabela_objetivos(
-                            tabela_area,
-                            area_num,
-                            areas.get(area_num, []),
-                        )
-
-                    doc.add_heading('ALVOS TRABALHADOS E DESEMPENHO', level=1)
-                    for area_num in range(1, 6):
-                        doc.add_heading(f"Area {area_num}", level=2)
-                        tabela_alvos = doc.add_table(rows=18, cols=4)
-                        preencher_tabela_desempenho(
-                            tabela_alvos,
-                            area_num,
-                            areas.get(area_num, []),
-                            df_hist,
-                            df_alvos,
-                            df_alvos_periodo,
-                            df_lib,
-                            periodo_inicio,
-                            periodo_fim,
-                        )
-
-                    for index, row in pd.DataFrame().iterrows():
-                        prog_nome = row['programa']
-                        doc.add_heading(f"{prog_nome}", level=2)
-                        
-                        texto_objetivo = row.get('objective', '')
-                        doc.add_paragraph(verificar_alvos_clean(texto_objetivo))
-                        
-                        if not df_alvos.empty and 'programa' in df_alvos.columns:
-                            alvos_prog = df_alvos[df_alvos['programa'] == prog_nome]
-                            if not alvos_prog.empty:
-                                nomes_alvos = ", ".join(alvos_prog['target_name'].unique())
-                                p_alvo = doc.add_paragraph(f"Alvos: {nomes_alvos}")
-                                p_alvo.runs[0].italic = True
-
-                    doc.add_page_break()
-
-                    doc.add_heading('DESEMPENHO POR ÁREA', level=1)
-                    
-                    trimestres = [
-                        (START_DATE, START_DATE + timedelta(days=90), "Trimestre 1"),
-                        (START_DATE + timedelta(days=90), START_DATE + timedelta(days=180), "Trimestre 2"),
-                        (START_DATE + timedelta(days=180), START_DATE + timedelta(days=270), "Trimestre 3"),
-                        (START_DATE + timedelta(days=270), START_DATE + timedelta(days=360), "Trimestre 4")
-                    ]
-
-                    for index, row in df_prog_unicos.iterrows():
-                        prog_nome = row['programa']
-                        limiar = row.get('mastery_threshold_percent', 90)
-                        if pd.isna(limiar) or not limiar: limiar = 90
-                        
-                        doc.add_heading(f"{prog_nome}", level=3)
-                        
-                        hist_p = df_hist[df_hist['programa'] == prog_nome].copy()
-                        linha_de_base = None
-                        media_int_geral = None
-                        status_lb = ""
-                        
-                        if not hist_p.empty:
-                            hist_p['date_pd'] = pd.to_datetime(hist_p['date'])
-                            if 'phase' not in hist_p.columns: hist_p['phase'] = ""
-                            
-                            mask_hist_lb = hist_p['phase'].astype(str).str.contains(r'linha de base|\blb\b|baseline|sondagem', case=False, na=False)
-                            fases_lb = hist_p[mask_hist_lb]
-                            fases_int = hist_p[~mask_hist_lb]
-                            
-                            if not fases_lb.empty:
-                                linha_de_base = fases_lb['independent_rate'].mean()
-                                if linha_de_base >= limiar: status_lb = "Objetivo atingido ja na Linha de Base"
-                                elif not fases_int.empty: status_lb = "Em Intervencao (avancou apos Linha de Base)"
-                                else: status_lb = "Avaliacao em andamento (em Linha de Base)"
-                            else:
-                                linha_de_base = hist_p.iloc[0]['independent_rate']
-                                status_lb = "Em Intervencao (sem registro formal de LB no periodo)"
-                                
-                            if not fases_int.empty:
-                                media_int_geral = fases_int['independent_rate'].mean()
-                        
-                        p_lb = doc.add_paragraph()
-                        p_lb.add_run("Média Linha de Base: ").bold = True
-                        p_lb.add_run(f"{linha_de_base:.1f}%" if pd.notnull(linha_de_base) else "N/A")
-                        
-                        p_int = doc.add_paragraph()
-                        p_int.add_run("Média Intervenção: ").bold = True
-                        p_int.add_run(f"{media_int_geral:.1f}%" if pd.notnull(media_int_geral) else "N/A")
-                        
-                        if status_lb:
-                            p_st = doc.add_paragraph(status_lb)
-                            p_st.runs[0].italic = True
-
-                        table = doc.add_table(rows=1, cols=3)
-                        aplicar_estilo_tabela_seguro(table)
-                        hdr = table.rows[0].cells
-                        hdr[0].text = 'Avaliação - Período'; hdr[1].text = 'Desempenho'; hdr[2].text = 'Código de evolução'
-                        for cell in hdr: cell.paragraphs[0].runs[0].bold = True
-                        
-                        desempenho_anterior = linha_de_base 
-                        evo_final_obj = "-" 
-                        
-                        for ini, fim, rotulo in trimestres:
-                            row_cells = table.add_row().cells
-                            if not hist_p.empty:
-                                df_tri = hist_p[(hist_p['date_pd'] >= pd.Timestamp(ini)) & (hist_p['date_pd'] < pd.Timestamp(fim))]
-                                if not df_tri.empty:
-                                    media = df_tri['independent_rate'].mean()
-                                    cod_evo = calcular_evolucao_trimestral(desempenho_anterior, media, limiar)
-                                    row_cells[0].text = rotulo
-                                    row_cells[1].text = f"{media:.1f}%"
-                                    row_cells[2].text = cod_evo
-                                    desempenho_anterior = media
-                                    
-                                    if "(" in cod_evo: evo_final_obj = cod_evo.split("(")[1].replace(")", "")
-                                    else: evo_final_obj = cod_evo
-                                    continue
-                            
-                            row_cells[0].text = rotulo; row_cells[1].text = "-"; row_cells[2].text = "Sem avaliações"
-                        
-                        if evo_final_obj in status_objetivos: status_objetivos[evo_final_obj] += 1
-                        else: status_objetivos["-"] += 1
-
-                        if not df_alvos_periodo.empty and 'programa' in df_alvos_periodo.columns:
-                            alvos_prog = df_alvos_periodo[df_alvos_periodo['programa'] == prog_nome].copy()
-                            p_alvos = doc.add_paragraph()
-                            p_alvos.add_run("\nAlvos que atingiram a meta no periodo:").bold = True
-                            
-                            if not alvos_prog.empty:
-                                if 'phase' not in alvos_prog.columns: alvos_prog['phase'] = ""
-                                total_alvos_trabalhados += alvos_prog['target_name'].nunique()
-                                
-                                lb_mastered = alvos_prog[alvos_prog['phase'].astype(str).str.contains(r'linha de base|\blb\b|baseline|sondagem', case=False, na=False) & (alvos_prog['independent_rate'] >= 100)]['target_name'].unique()
-                                mask = ~alvos_prog['target_name'].isin(lb_mastered)
-                                
-                                if not alvos_prog[mask].empty:
-                                    max_rates = alvos_prog[mask].groupby('target_name')['independent_rate'].max()
-                                    alvos_meta = [(alvo, taxa) for alvo, taxa in max_rates.items() if taxa >= limiar]
-                                    total_alvos_atingidos += len(alvos_meta)
-                                    
-                                    if alvos_meta:
-                                        for alvo, taxa in sorted(alvos_meta):
-                                            doc.add_paragraph(f"  - {alvo}: {taxa:.1f}% de independencia")
-                                    else: doc.add_paragraph("  - Nenhum novo alvo atingiu o criterio de dominio.")
-                                else: doc.add_paragraph("  - Nenhum novo alvo atingiu o criterio de dominio.")
-                            else: doc.add_paragraph("  - Sem registros granulares de alvos no periodo.")
-                        doc.add_paragraph()
-
-                    # --- RESUMO GRÁFICO ---
-                    doc.add_page_break()
-                    doc.add_heading('RESUMO CLÍNICO DE EVOLUÇÃO', level=1)
-                    adicionar_grafico_objetivo_periodo(doc, df_hist, objetivo_grafico, periodo_inicio, periodo_fim_exclusivo)
-                    adicionar_graficos_interferentes_periodo(doc, df_beh, periodo_inicio, periodo_fim_exclusivo)
-                    
-                    labels_obj, sizes_obj, colors_obj = [], [], []
-                    color_map = {"ATG": "#2ECC71", "AVA": "#3498DB", "EST": "#F1C40F", "AGR": "#E74C3C", "-": "#95A5A6"}
-                    nome_map = {"ATG": "Atingiu", "AVA": "Avançou", "EST": "Estabilizou", "AGR": "Agravou", "-": "S/ Dados"}
-
-                    for k, v in status_objetivos.items():
-                        if v > 0:
-                            labels_obj.append(nome_map.get(k, k))
-                            sizes_obj.append(v)
-                            colors_obj.append(color_map.get(k, "#333333"))
-
-                    if sizes_obj:
-                        plt.figure(figsize=(5, 4))
-                        plt.pie(sizes_obj, labels=labels_obj, colors=colors_obj, autopct='%1.1f%%', startangle=140)
-                        plt.title('Status Final dos Programas')
-                        plt.tight_layout()
-                        buf_obj = io.BytesIO()
-                        plt.savefig(buf_obj, format='png')
-                        plt.close()
-                        buf_obj.seek(0)
-                        doc.add_picture(buf_obj, width=Inches(4.5))
-
-                    if total_alvos_trabalhados > 0:
-                        plt.figure(figsize=(5, 4))
-                        bars = plt.bar(['Trabalhados', 'Atingiram Meta'], [total_alvos_trabalhados, total_alvos_atingidos], color=['#3498DB', '#2ECC71'])
-                        plt.title('Aquisição de Novos Alvos')
-                        plt.ylabel('Quantidade de Alvos')
-                        for bar in bars:
-                            yval = bar.get_height()
-                            plt.text(bar.get_x() + bar.get_width()/2, yval + 0.5, int(yval), ha='center', va='bottom', fontweight='bold')
-                        plt.tight_layout()
-                        buf_alvos = io.BytesIO()
-                        plt.savefig(buf_alvos, format='png')
-                        plt.close()
-                        buf_alvos.seek(0)
-                        doc.add_picture(buf_alvos, width=Inches(4.5))
-
-                    if not df_hist.empty:
-                        df_graf = df_hist.copy()
-                        df_graf["date_pd"] = pd.to_datetime(df_graf["date"], errors="coerce")
-                        df_graf = df_graf.dropna(subset=["date_pd"])
-                        if not df_graf.empty:
-                            doc.add_heading("Graficos de desempenho dos programas", level=2)
-
-                            df_linha = (
-                                df_graf.groupby("date_pd", as_index=False)
-                                .agg({"independent_rate": "mean", "prompt_rate": "mean"})
-                                .sort_values("date_pd")
-                            )
-                            if not df_linha.empty:
-                                plt.figure(figsize=(7, 4))
-                                plt.plot(df_linha["date_pd"], df_linha["independent_rate"], marker="o", label="Independencia media")
-                                plt.plot(df_linha["date_pd"], df_linha["prompt_rate"], marker="o", label="Ajuda media")
-                                plt.title("Evolucao media dos programas")
-                                plt.ylabel("Percentual")
-                                plt.ylim(0, 100)
-                                ax = plt.gca()
-                                ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
-                                ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m/%y"))
-                                plt.gcf().autofmt_xdate(rotation=45)
-                                plt.legend()
-                                plt.tight_layout()
-                                buf_prog_linha = io.BytesIO()
-                                plt.savefig(buf_prog_linha, format="png")
-                                plt.close()
-                                buf_prog_linha.seek(0)
-                                doc.add_picture(buf_prog_linha, width=Inches(5.5))
-
-                            df_programas = (
-                                df_graf.groupby("programa", as_index=False)["independent_rate"]
-                                .mean()
-                                .sort_values("independent_rate", ascending=True)
-                                .tail(15)
-                            )
-                            if not df_programas.empty:
-                                plt.figure(figsize=(7, 5))
-                                plt.barh(df_programas["programa"], df_programas["independent_rate"], color="#2E86C1")
-                                plt.title("Media de independencia por programa")
-                                plt.xlabel("Percentual medio")
-                                plt.xlim(0, 100)
-                                plt.tight_layout()
-                                buf_prog_bar = io.BytesIO()
-                                plt.savefig(buf_prog_bar, format="png")
-                                plt.close()
-                                buf_prog_bar.seek(0)
-                                doc.add_picture(buf_prog_bar, width=Inches(5.8))
-
-                    if not df_beh.empty:
-                        df_beh['date_pd'] = pd.to_datetime(df_beh['date'])
-                        df_beh_pei = df_beh[df_beh['date_pd'] >= pd.Timestamp(START_DATE)]
-                        
-                        if not df_beh_pei.empty:
-                            doc.add_page_break()
-                            doc.add_heading('ANÁLISE DE COMPORTAMENTOS INTERFERENTES', level=1)
-
-                            df_totais = df_beh_pei.groupby('comportamento')['count'].sum().reset_index()
-                            if not df_totais.empty and df_totais['count'].sum() > 0:
-                                plt.figure(figsize=(6, 4))
-                                plt.bar(df_totais['comportamento'], df_totais['count'], color='#E74C3C')
-                                plt.title('1. Frequência Total de Ocorrências')
-                                plt.xticks(rotation=45, ha='right')
-                                plt.tight_layout()
-                                buf_tot = io.BytesIO()
-                                plt.savefig(buf_tot, format='png')
-                                plt.close()
-                                buf_tot.seek(0)
-                                doc.add_picture(buf_tot, width=Inches(5))
-
-                            if 'rate' in df_beh_pei.columns:
-                                df_taxa = df_beh_pei.groupby('comportamento')['rate'].mean().reset_index()
-                                if not df_taxa.empty and df_taxa['rate'].sum() > 0:
-                                    plt.figure(figsize=(6, 4))
-                                    plt.bar(df_taxa['comportamento'], df_taxa['rate'], color='#F39C12')
-                                    plt.title('2. Taxa Média (Ocorrências / Hora)')
-                                    plt.xticks(rotation=45, ha='right')
-                                    plt.tight_layout()
-                                    buf_tx = io.BytesIO()
-                                    plt.savefig(buf_tx, format='png')
-                                    plt.close()
-                                    buf_tx.seek(0)
-                                    doc.add_picture(buf_tx, width=Inches(5))
-
-                            plt.figure(figsize=(7, 4))
-                            for comp in df_beh_pei['comportamento'].unique():
-                                df_c = df_beh_pei[df_beh_pei['comportamento'] == comp].sort_values('date_pd')
-                                plt.plot(df_c['date_pd'], df_c['count'], marker='o', label=comp)
-                            
-                            plt.title('3. Evolução ao Longo do Tempo')
-                            ax = plt.gca()
-                            ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=6))
-                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m/%y'))
-                            plt.gcf().autofmt_xdate(rotation=45)
-                            plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-                            plt.tight_layout()
-                            buf_line = io.BytesIO()
-                            plt.savefig(buf_line, format='png')
-                            plt.close()
-                            buf_line.seek(0)
-                            doc.add_picture(buf_line, width=Inches(5.5))
-
-                            col_tempo = next((col for col in ['duration', 'tempo', 'time'] if col in df_beh_pei.columns), None)
-                            if col_tempo and df_beh_pei[col_tempo].sum() > 0:
-                                df_tempo = df_beh_pei.groupby('comportamento')[col_tempo].sum().reset_index()
-                                plt.figure(figsize=(6, 4))
-                                plt.bar(df_tempo['comportamento'], df_tempo[col_tempo], color='#8E44AD')
-                                plt.title('4. Duração Total (Tempo Acumulado)')
-                                plt.xticks(rotation=45, ha='right')
-                                plt.tight_layout()
-                                buf_tmp = io.BytesIO()
-                                plt.savefig(buf_tmp, format='png')
-                                plt.close()
-                                buf_tmp.seek(0)
-                                doc.add_picture(buf_tmp, width=Inches(5))
-
-                    doc.add_page_break()
-                    doc.add_heading('Legenda - Código de evolução', level=2)
-                    legendas = [
-                        ("Atingiu (ATG):", "O objetivo atingiu o critério de domínio no período avaliado."),
-                        ("Avançou (AVA):", "Houve progresso significativo (> 5%) em relação à avaliação ou período anterior."),
-                        ("Estabilizou (EST):", "Desempenho manteve-se na mesma margem do último período."),
-                        ("Agravou (AGR):", "Houve perda de habilidade ou queda de desempenho no período avaliado.")
-                    ]
-                    for sigla, desc in legendas:
-                        p = doc.add_paragraph()
-                        p.add_run(sigla).bold = True
-                        p.add_run(f" {desc}")
-
-                    aplicar_fonte_pei(doc)
-                    buffer = io.BytesIO()
-                    doc.save(buffer)
-                    buffer.seek(0)
-                    return buffer
-
-                def gerar_doc_anual_pei_local(nome_paciente, df_prog, df_hist, df_alvos, df_lib, df_beh, objetivo_grafico):
-                    trimestres = [
-                        (START_DATE, START_DATE + timedelta(days=90)),
-                        (START_DATE + timedelta(days=90), START_DATE + timedelta(days=180)),
-                        (START_DATE + timedelta(days=180), START_DATE + timedelta(days=270)),
-                        (START_DATE + timedelta(days=270), START_DATE + timedelta(days=360)),
-                    ]
-                    doc_final = Document()
-                    aplicar_fonte_pei(doc_final)
-                    title = doc_final.add_heading(f"RELATÓRIO ANUAL PEI — {limpar_nome_objetivo(nome_paciente)}", 0)
-                    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    ano_fim = (START_DATE + timedelta(days=359)).strftime("%d/%m/%Y")
-                    doc_final.add_paragraph(f"Período: {START_DATE.strftime('%d/%m/%Y')} a {ano_fim}")
-
-                    for idx, (ini, fim) in enumerate(trimestres, start=1):
-                        fim_excl = fim
-                        fim_inc = fim - timedelta(days=1)
-                        df_hist_tri = filtrar_periodo_pei(df_hist, ini, fim_excl)
-                        df_alvos_tri = filtrar_periodo_pei(df_alvos, ini, fim_excl)
-                        df_beh_tri = filtrar_periodo_pei(df_beh, ini, fim_excl)
-
-                        doc_final.add_page_break()
-                        doc_final.add_heading(
-                            f"TRIMESTRE {idx} — {ini.strftime('%d/%m/%Y')} a {fim_inc.strftime('%d/%m/%Y')}",
-                            level=1,
-                        )
-                        texto_tri = gerar_texto_trimestral_pei(
-                            nome_paciente, df_hist_tri, df_alvos_tri, df_beh_tri,
-                            objetivo_grafico, ini, fim_inc,
-                        )
-                        adicionar_texto_trimestral(doc_final, texto_tri, ini, fim_inc)
-                        texto_beh = gerar_resumo_comportamentos_problema_local(df_beh_tri, ini, fim_inc)
-                        adicionar_resumo_clinico_periodo(doc_final, texto_beh, ini, fim_inc)
-                        adicionar_graficos_modelo(doc_final, df_hist_tri, df_alvos_tri, df_beh_tri, objetivo_grafico, ini, fim_excl)
-
-                    aplicar_fonte_pei(doc_final)
-                    buf_anual = io.BytesIO()
-                    doc_final.save(buf_anual)
-                    buf_anual.seek(0)
-                    return buf_anual
-
                 # Visualização na Tela do Dashboard
-                st.subheader("Areas e objetivos no periodo selecionado")
-                df_pei = filtrar_periodo_pei(df_p_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
+                df_pei = filtrar_periodo_pei_service(df_p_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
                 df_alvos_preview = carregar_alvos_programas_pei(programas_pei)
-                df_alvos_periodo_preview = filtrar_periodo_pei(df_alvos_preview, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
-                areas_preview = distribuir_objetivos_por_area(df_p_raw, filtrar_periodo_pei(df_b_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei))
-                resumo_objetivos_preview = resumo_objetivos_por_area(areas_preview)
-                if resumo_objetivos_preview.empty:
-                    st.info("Sem objetivos registrados no periodo selecionado.")
-                else:
-                    st.dataframe(resumo_objetivos_preview, hide_index=True, use_container_width=True)
+                df_alvos_periodo_preview = filtrar_periodo_pei_service(df_alvos_preview, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
 
-                st.subheader("Alvos trabalhados e desempenho no periodo selecionado")
-                resumo_alvos_preview = resumo_alvos_por_objetivo(
-                    areas_preview,
-                    df_p_raw,
-                    df_alvos_preview,
-                    df_alvos_periodo_preview,
-                    df_lib,
-                    ciclo_inicio_pei,
-                    ciclo_fim_pei,
-                )
-                if resumo_alvos_preview.empty:
-                    st.info("Sem alvos trabalhados no periodo selecionado.")
-                else:
-                    st.dataframe(
-                        estilizar_status_preview_pei(resumo_alvos_preview),
-                        hide_index=True,
-                        use_container_width=True,
-                    )
-
-                st.subheader("Grafico do objetivo selecionado")
+                st.subheader("Gráfico de independência média dos objetivos")
                 df_obj_visual = df_pei.copy()
                 if objetivo_grafico_pei != "Media geral dos objetivos" and not df_obj_visual.empty:
                     df_obj_visual = df_obj_visual[df_obj_visual["programa"] == objetivo_grafico_pei]
@@ -2021,28 +604,63 @@ else:
                     )
                     df_obj_plot = df_obj_plot.rename(columns={
                         "date_pd": "Data",
-                        "independent_rate": "Independencia",
+                        "independent_rate": "Independência média",
                     })
+                    titulo_grafico_pei = (
+                        "Independência média dos objetivos"
+                        if objetivo_grafico_pei == "Media geral dos objetivos"
+                        else f"Independência média - {objetivo_grafico_pei}"
+                    )
                     fig_obj_pei = px.line(
                         df_obj_plot,
                         x="Data",
-                        y="Independencia",
+                        y="Independência média",
                         markers=True,
-                        title=objetivo_grafico_pei,
-                        labels={"value": "Percentual", "variable": "Medida"},
+                        title=titulo_grafico_pei,
+                        labels={"Independência média": "Independência média (%)"},
                     )
-                    fig_obj_pei.update_yaxes(range=[0, 100])
+                    fig_obj_pei.update_yaxes(range=[0, 100], title="Independência média (%)")
                     fig_obj_pei.update_xaxes(type="date", tickformat="%d/%m/%Y", tickangle=-45)
-                    st.plotly_chart(fig_obj_pei, use_container_width=True)
+                    st.plotly_chart(fig_obj_pei, width="stretch")
+
+                st.subheader("Areas e objetivos no periodo selecionado")
+                areas_preview = distribuir_objetivos_por_area_service(
+                    df_pei,
+                    filtrar_periodo_pei_service(df_b_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei),
+                )
+                resumo_objetivos_preview = resumo_objetivos_por_area_service(areas_preview)
+                if resumo_objetivos_preview.empty:
+                    st.info("Sem objetivos registrados no periodo selecionado.")
+                else:
+                    st.dataframe(resumo_objetivos_preview, hide_index=True, width="stretch")
+
+                st.subheader("Alvos trabalhados e desempenho no periodo selecionado")
+                resumo_alvos_preview = resumo_alvos_por_objetivo_service(
+                    areas_preview,
+                    df_p_raw,
+                    df_alvos_preview,
+                    df_alvos_periodo_preview,
+                    df_lib,
+                    ciclo_inicio_pei,
+                    ciclo_fim_pei,
+                )
+                if resumo_alvos_preview.empty:
+                    st.info("Sem alvos trabalhados no periodo selecionado.")
+                else:
+                    st.dataframe(
+                        estilizar_status_preview_pei_service(resumo_alvos_preview),
+                        hide_index=True,
+                        width="stretch",
+                    )
 
                 if not df_b_raw.empty:
                     st.subheader("Evolucao de Comportamentos Interferentes")
-                    df_b_pei = filtrar_periodo_pei(df_b_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
+                    df_b_pei = filtrar_periodo_pei_service(df_b_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
                     if not df_b_pei.empty:
                         y_interf = 'rate' if 'rate' in df_b_pei.columns else 'count'
                         fig_pei = px.bar(df_b_pei, x='date', y=y_interf, color='comportamento', title="Interferentes no periodo selecionado")
                         fig_pei.update_xaxes(type='date', tickformat="%d/%m/%Y", tickangle=-45)
-                        st.plotly_chart(fig_pei, use_container_width=True)
+                        st.plotly_chart(fig_pei, width="stretch")
 
                 pei_key = f"pei_docx::{paciente_sel}"
                 pei_name_key = f"pei_docx_name::{paciente_sel}"
@@ -2051,29 +669,11 @@ else:
                     with st.spinner("Compilando graficos, grade de objetivos e resumo dos comportamentos. Aguarde..."):
                         df_alvos_completo = df_alvos_preview.copy()
                         
-                        df_prog_dados = df_p_raw.copy()
-                        
-                        # Limpeza do objetivo
-                        if 'objective' in df_prog_dados.columns:
-                            df_prog_dados['objective'] = df_prog_dados['objective'].astype(str).replace({'None': None, 'nan': None, '': None})
-                        else:
-                            df_prog_dados['objective'] = None
-                            
-                        # Merge lógico: Verifica se a biblioteca existe ANTES de usar o else
-                        if not df_lib.empty and 'name' in df_lib.columns:
-                            df_lib_unique = df_lib.drop_duplicates(subset=['name'])
-                            df_prog_dados = df_prog_dados.merge(df_lib_unique[['name', 'mastery_threshold_percent', 'objective_template']], left_on='programa', right_on='name', how='left')
-                            # Preenche o objetivo com o template da biblioteca se o bHave estiver vazio
-                            df_prog_dados['objective'] = df_prog_dados['objective'].fillna(df_prog_dados['objective_template']).fillna("Descrição não informada.")
-                        else:
-                            # Se não houver biblioteca, preenche com o padrão
-                            df_prog_dados['objective'] = df_prog_dados['objective'].fillna("Descrição não informada.")
-                        
-                        df_prog_periodo_pei = filtrar_periodo_pei(df_prog_dados, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
-                        df_alvos_periodo_pei = filtrar_periodo_pei(df_alvos_completo, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
-                        df_beh_periodo_pei = filtrar_periodo_pei(df_b_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
-                        df_hist_periodo_pei = filtrar_periodo_pei(df_p_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
-                        texto_analise_trimestral = gerar_texto_trimestral_pei(
+                        df_prog_dados = preparar_programas_pei(df_p_raw, df_lib)
+                        df_alvos_periodo_pei = filtrar_periodo_pei_service(df_alvos_completo, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
+                        df_beh_periodo_pei = filtrar_periodo_pei_service(df_b_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
+                        df_hist_periodo_pei = filtrar_periodo_pei_service(df_p_raw, ciclo_inicio_pei, ciclo_fim_exclusivo_pei)
+                        texto_analise_trimestral = gerar_texto_trimestral_pei_service(
                             paciente_sel,
                             df_hist_periodo_pei,
                             df_alvos_periodo_pei,
@@ -2081,16 +681,20 @@ else:
                             objetivo_grafico_pei,
                             ciclo_inicio_pei,
                             ciclo_fim_pei,
+                            usar_ia=usar_ia_texto_pei,
+                            ask_agent_fn=ask_clinical_agent if usar_ia_texto_pei else None,
                         )
-                        texto_resumo_comportamentos = gerar_resumo_comportamentos_problema_pei(
+                        texto_resumo_comportamentos = gerar_resumo_comportamentos_problema_pei_service(
                             paciente_sel,
                             df_beh_periodo_pei,
                             ciclo_inicio_pei,
                             ciclo_fim_pei,
+                            usar_ia=usar_ia_texto_pei,
+                            ask_agent_fn=ask_clinical_agent if usar_ia_texto_pei else None,
                         )
 
                         # Gera o buffer do documento
-                        buffer_file = gerar_doc_completo(
+                        buffer_file = gerar_doc_completo_service(
                             paciente_sel,
                             df_prog_dados,
                             df_p_raw,
@@ -2103,6 +707,8 @@ else:
                             ciclo_fim_exclusivo_pei,
                             texto_analise_trimestral,
                             texto_resumo_comportamentos,
+                            pei_template_path=PEI_TEMPLATE_PATH,
+                            start_date=START_DATE,
                         )
                         st.session_state[pei_key] = buffer_file.getvalue()
                         st.session_state[pei_name_key] = (
@@ -2115,18 +721,8 @@ else:
                     if st.button("Gerar Relatório Anual Unificado (4 Trimestres)", key="btn_pei_anual"):
                         with st.spinner("Gerando os 4 trimestres e unificando. Isso pode levar alguns minutos..."):
                             df_alvos_anual = df_alvos_preview.copy()
-                            df_prog_anual = df_p_raw.copy()
-                            if 'objective' in df_prog_anual.columns:
-                                df_prog_anual['objective'] = df_prog_anual['objective'].astype(str).replace({'None': None, 'nan': None, '': None})
-                            else:
-                                df_prog_anual['objective'] = None
-                            if not df_lib.empty and 'name' in df_lib.columns:
-                                df_lib_unique = df_lib.drop_duplicates(subset=['name'])
-                                df_prog_anual = df_prog_anual.merge(df_lib_unique[['name', 'mastery_threshold_percent', 'objective_template']], left_on='programa', right_on='name', how='left')
-                                df_prog_anual['objective'] = df_prog_anual['objective'].fillna(df_prog_anual['objective_template']).fillna("Descrição não informada.")
-                            else:
-                                df_prog_anual['objective'] = df_prog_anual['objective'].fillna("Descrição não informada.")
-                            buffer_anual = gerar_doc_anual_pei_local(
+                            df_prog_anual = preparar_programas_pei(df_p_raw, df_lib)
+                            buffer_anual = gerar_doc_anual_pei_service(
                                 paciente_sel,
                                 df_prog_anual,
                                 df_p_raw,
@@ -2134,6 +730,8 @@ else:
                                 df_lib,
                                 df_b_raw,
                                 objetivo_grafico_pei,
+                                start_date=START_DATE,
+                                ask_agent_fn=ask_clinical_agent if usar_ia_texto_pei else None,
                             )
                             st.session_state[pei_key] = buffer_anual.getvalue()
                             st.session_state[pei_name_key] = (
@@ -2148,7 +746,7 @@ else:
                         data=st.session_state[pei_key],
                         file_name=st.session_state.get(pei_name_key, f"PEI_{paciente_sel.replace(' ', '_')}.docx"),
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True,
+                        width="stretch",
                     )
 
             # ==========================================

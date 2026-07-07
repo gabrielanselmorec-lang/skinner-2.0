@@ -6,6 +6,7 @@ Depende de:
 """
 import io
 import re
+import unicodedata
 from datetime import datetime, timedelta
 
 import matplotlib
@@ -23,7 +24,7 @@ import streamlit as st
 
 from app.services.pei_rules import (
     calcular_evolucao_trimestral,
-    classificar_area_pei,
+    distribuir_objetivos_por_area,
     filtrar_periodo_pei,
     formatar_lista_alvos_corrida,
     limiar_programa_pei,
@@ -32,7 +33,6 @@ from app.services.pei_rules import (
     resposta_ia_invalida,
     resumo_alvos_programa,
     status_geral_alvos,
-    texto_objetivo_programa,
     verificar_alvos_clean,
 )
 
@@ -43,10 +43,33 @@ START_DATE = datetime(2026, 3, 27)
 # Helpers de estilo DOCX
 # ---------------------------------------------------------------------------
 
+def _normalizar_nome_estilo(nome):
+    texto = unicodedata.normalize("NFKD", str(nome))
+    texto = "".join(char for char in texto if not unicodedata.combining(char))
+    return texto.casefold()
+
+
+def _buscar_estilo_por_nome(doc, nomes):
+    nomes_normalizados = {_normalizar_nome_estilo(nome) for nome in nomes}
+    for style in doc.styles:
+        if _normalizar_nome_estilo(getattr(style, "name", "")) in nomes_normalizados:
+            return style
+    return None
+
+
 def aplicar_fonte_pei(doc):
-    for style_name in ["Normal", "Title", "Heading 1", "Heading 2", "Heading 3"]:
+    estilos_alvo = [
+        ("Normal",),
+        ("Title", "Titulo"),
+        ("Heading 1", "Titulo 1"),
+        ("Heading 2", "Titulo 2"),
+        ("Heading 3", "Titulo 3"),
+    ]
+    for style_names in estilos_alvo:
+        style = _buscar_estilo_por_nome(doc, style_names)
+        if style is None:
+            continue
         try:
-            style = doc.styles[style_name]
             style.font.name = "Times New Roman"
             style.font.size = Pt(12)
             style.font.color.rgb = RGBColor(0, 0, 0)
@@ -130,6 +153,13 @@ def deixar_celula_negrito(cell):
             run.bold = True
 
 
+def rotulo_objetivo_pei(area_num, item_index, item):
+    """Retorna o codigo do objetivo junto ao nome curto do programa."""
+    codigo = f"{area_num}.{item_index + 1}"
+    nome = limpar_nome_objetivo(item.get("programa", "") or item.get("texto", ""))
+    return f"{codigo} {nome}".strip() if nome else f"Objetivo {codigo}"
+
+
 def aplicar_cor_fundo_celula(cell, color):
     tc_pr = cell._tc.get_or_add_tcPr()
     shd = tc_pr.find(qn("w:shd"))
@@ -170,26 +200,6 @@ def estilizar_status_preview_pei(df):
 # Tabelas de objetivos e desempenho
 # ---------------------------------------------------------------------------
 
-def distribuir_objetivos_por_area(df_prog, df_beh):
-    areas = {1: [], 2: [], 3: [], 4: [], 5: []}
-    df_prog_unicos = df_prog.drop_duplicates(subset=["programa"]) if not df_prog.empty else pd.DataFrame()
-    for _, row in df_prog_unicos.iterrows():
-        programa = str(row.get("programa", "")).strip()
-        objetivo = texto_objetivo_programa(row, verificar_alvos_clean)
-        area = classificar_area_pei(programa, objetivo)
-        areas[area].append({"programa": programa, "texto": objetivo})
-
-    if not df_beh.empty and "comportamento" in df_beh.columns:
-        comportamentos = sorted([str(v) for v in df_beh["comportamento"].dropna().unique() if str(v).strip()])
-        if comportamentos:
-            texto = (
-                "Reduzir a taxa dos comportamentos interferentes monitorados "
-                f"({', '.join(comportamentos[:8])}) com base nos registros clínicos do período."
-            )
-            areas[4].insert(0, {"programa": "Comportamentos interferentes", "texto": texto})
-    return areas
-
-
 def preencher_tabela_objetivos(table, area_num, itens):
     garantir_colunas_tabela(table, 2)
     limpar_linhas_tabela(table)
@@ -201,7 +211,7 @@ def preencher_tabela_objetivos(table, area_num, itens):
 
     for item_index, item in enumerate(itens):
         cells = table.add_row().cells
-        set_cell_text(cells[0], f"Objetivo {area_num}.{item_index + 1}")
+        set_cell_text(cells[0], rotulo_objetivo_pei(area_num, item_index, item))
         set_cell_text(cells[1], item.get("texto", ""))
         deixar_celula_negrito(cells[0])
 
@@ -212,6 +222,37 @@ def preencher_tabela_objetivos(table, area_num, itens):
 
     aplicar_estilo_tabela_seguro(table)
     aplicar_bordas_grade_tabela(table)
+
+
+def resumo_alvos_por_objetivo(areas, df_hist, df_alvos, df_alvos_periodo, df_lib, periodo_inicio, periodo_fim):
+    """Monta a grade de alvos exibida no preview e reutilizada pelo PEI."""
+    rows = []
+    periodo = f"{periodo_inicio.strftime('%d/%m/%Y')} a {periodo_fim.strftime('%d/%m/%Y')}"
+    for area_num, itens in areas.items():
+        for item_index, item in enumerate(itens):
+            codigo = rotulo_objetivo_pei(area_num, item_index, item)
+            programa = item.get("programa", "")
+            limiar = limiar_programa_pei(programa, df_lib)
+            linha_de_base, _ = desempenho_trimestral_para_programa(programa, df_hist, limiar)
+            desempenho_inicial = f"{linha_de_base:.1f}%" if pd.notna(linha_de_base) else "-"
+            alvos = resumo_alvos_programa(df_alvos, programa, df_lib, df_alvos_periodo)
+            rows.append({
+                "Objetivo": codigo,
+                "Periodo avaliado": periodo,
+                "Desempenho inicial": desempenho_inicial,
+                "Alvos trabalhados": formatar_lista_alvos_corrida(alvos),
+                "Status": status_geral_alvos(alvos),
+            })
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "Objetivo",
+            "Periodo avaliado",
+            "Desempenho inicial",
+            "Alvos trabalhados",
+            "Status",
+        ],
+    )
 
 
 def desempenho_trimestral_para_programa(programa, df_hist, limiar=90, start_date=None):
@@ -278,7 +319,7 @@ def preencher_tabela_desempenho(table, area_num, itens, df_hist, df_alvos, df_al
             limiar = limiar_programa_pei(programa, df_lib)
             linha_de_base, _ = desempenho_trimestral_para_programa(programa, df_hist, limiar)
             desempenho_inicial = f"{linha_de_base:.1f}%" if pd.notna(linha_de_base) else "-"
-            codigo = f"Objetivo {area_num}.{item_index + 1}"
+            codigo = rotulo_objetivo_pei(area_num, item_index, item)
             alvos = resumo_alvos_programa(df_alvos, programa, df_lib, df_alvos_periodo)
             status_geral = status_geral_alvos(alvos)
 
@@ -489,14 +530,14 @@ def gerar_resumo_comportamentos_problema_pei(
 
 def adicionar_texto_trimestral(doc, texto, inicio, fim):
     doc.add_page_break()
-    doc.add_heading("Analise dos objetivos no periodo", level=1)
+    doc.add_heading("Resumo das evolucoes dos terapeutas no periodo", level=1)
     p_periodo = doc.add_paragraph()
     p_periodo.add_run("Periodo: ").bold = True
     p_periodo.add_run(f"{inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}")
 
     texto_limpo = limpar_texto_pei(texto)
     if not texto_limpo:
-        texto_limpo = "Espaco reservado para descricao clinica do desempenho dos objetivos no periodo."
+        texto_limpo = "Sem evolucoes textuais suficientes para sintetizar o periodo observado."
     for bloco in re.split(r"\n\s*\n", texto_limpo):
         if bloco.strip():
             doc.add_paragraph(bloco.strip())
@@ -728,6 +769,41 @@ def adicionar_graficos_modelo(doc, df_hist, df_alvos, df_beh, objetivo_grafico, 
 # Funções públicas principais
 # ---------------------------------------------------------------------------
 
+def preparar_programas_pei(df_prog, df_lib):
+    """Prepara objetivos do PEI usando texto do bHave e fallback da biblioteca."""
+    df_preparado = pd.DataFrame() if df_prog is None else df_prog.copy()
+    df_lib = pd.DataFrame() if df_lib is None else df_lib
+    objetivo_padrao = verificar_alvos_clean("")
+    if "programa" not in df_preparado.columns:
+        df_preparado["programa"] = ""
+    if "objective" in df_preparado.columns:
+        df_preparado["objective"] = (
+            df_preparado["objective"]
+            .astype(str)
+            .replace({"None": None, "nan": None, "": None})
+        )
+    else:
+        df_preparado["objective"] = None
+
+    colunas_lib = {"name", "mastery_threshold_percent", "objective_template"}
+    if not df_lib.empty and colunas_lib.issubset(df_lib.columns):
+        df_lib_unique = df_lib.drop_duplicates(subset=["name"])
+        df_preparado = df_preparado.merge(
+            df_lib_unique[["name", "mastery_threshold_percent", "objective_template"]],
+            left_on="programa",
+            right_on="name",
+            how="left",
+        )
+        df_preparado["objective"] = (
+            df_preparado["objective"]
+            .fillna(df_preparado["objective_template"])
+            .fillna(objetivo_padrao)
+        )
+    else:
+        df_preparado["objective"] = df_preparado["objective"].fillna(objetivo_padrao)
+    return df_preparado
+
+
 def gerar_doc_modelo_pei(
     nome_paciente,
     df_prog,
@@ -789,6 +865,7 @@ def gerar_doc_modelo_pei(
                 periodo_fim,
             )
 
+    adicionar_texto_trimestral(doc, texto_analise_trimestral, periodo_inicio, periodo_fim)
     adicionar_resumo_clinico_periodo(doc, texto_resumo_comportamentos, periodo_inicio, periodo_fim)
     adicionar_graficos_modelo(doc, df_hist, df_alvos, df_beh, objetivo_grafico, periodo_inicio, periodo_fim_exclusivo)
     aplicar_fonte_pei(doc)
@@ -828,7 +905,6 @@ def gerar_doc_completo(
     from app.services.pei_rules import (
         calcular_evolucao_trimestral as _calc_evo,
         filtrar_periodo_pei as _filtrar,
-        verificar_alvos_clean as _verificar,
     )
 
     doc = Document()
@@ -850,7 +926,6 @@ def gerar_doc_completo(
     t_id.rows[3].cells[0].text = "Equipe Responsável: Sistema Skinner"
 
     df_alvos_periodo = _filtrar(df_alvos, periodo_inicio, periodo_fim_exclusivo)
-    adicionar_resumo_clinico_periodo(doc, texto_resumo_comportamentos, periodo_inicio, periodo_fim)
 
     doc.add_heading("OBJETIVOS DE INTERVENÇÃO", level=1)
     doc.add_paragraph("(As metas devem ser Específicas, Mensuráveis, Alcançáveis, Relevantes e com Prazo definido.)\n")
@@ -995,6 +1070,9 @@ def gerar_doc_completo(
             else:
                 doc.add_paragraph("  - Sem registros granulares de alvos no periodo.")
         doc.add_paragraph()
+
+    adicionar_texto_trimestral(doc, texto_analise_trimestral, periodo_inicio, periodo_fim)
+    adicionar_resumo_clinico_periodo(doc, texto_resumo_comportamentos, periodo_inicio, periodo_fim)
 
     doc.add_page_break()
     doc.add_heading("RESUMO CLÍNICO DE EVOLUÇÃO", level=1)

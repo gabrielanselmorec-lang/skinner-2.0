@@ -30,6 +30,7 @@ def limpar_texto_pei(texto):
 def limpar_nome_objetivo(texto):
     """Remove código interno entre parênteses vindo da base de dados."""
     texto = limpar_texto_pei(texto)
+    # A regex \s*\([^)]*\) remove tudo que estiver entre parênteses, incluindo espaços ao redor
     return re.sub(r'\s*\([^)]*\)', '', texto).strip()
 
 

@@ -411,7 +411,7 @@ def _render_objective_picker(
             if col.button(
                 label,
                 key=f"pick::{selected_key}::{codigo}",
-                use_container_width=True,
+                width="stretch",
                 help=str(row["descricao"]),
             ):
                 st.session_state[selected_key] = codigo
@@ -621,7 +621,7 @@ def _render_vinculo_bhave(protocolo_codigo: str, objetivo: pd.Series, api_base_u
 
         if vinculos:
             st.caption("Vinculos atuais")
-            st.dataframe(pd.DataFrame(vinculos), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(vinculos), hide_index=True, width="stretch")
 
         nomes = [item["name"] for item in biblioteca if item.get("name")]
         if not nomes:
@@ -648,7 +648,7 @@ def _render_vinculo_bhave(protocolo_codigo: str, objetivo: pd.Series, api_base_u
             dias = escolhido.get("mastery_days") or 3
             st.caption(f"Criterio bHave: {threshold}% por {dias} sessoes/dias configurados na biblioteca.")
 
-        if st.button("Salvar vinculo bHave", use_container_width=True):
+        if st.button("Salvar vinculo bHave", width="stretch"):
             payload = {
                 "codigo_item": objetivo["codigo"],
                 "programa_biblioteca": programa,
@@ -816,7 +816,7 @@ def render_ablls_module(
         "Pontuar automaticamente pelo bHave quando o criterio estiver batido",
         value=False,
     )
-    aplicar_bhave_agora = col_botao.button("Aplicar bHave agora", use_container_width=True)
+    aplicar_bhave_agora = col_botao.button("Aplicar bHave agora", width="stretch")
 
     if auto_bhave or aplicar_bhave_agora:
         try:
@@ -901,7 +901,7 @@ def render_ablls_module(
         st.dataframe(
             _styled_area_table(objetivos_area),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             height=360,
         )
 
@@ -913,7 +913,7 @@ def render_ablls_module(
             data=pdf_bytes,
             file_name=f"{protocolo_codigo}_cascata_{nome_seguro}_{data_avaliacao.isoformat()}.pdf",
             mime="application/pdf",
-            use_container_width=True,
+            width="stretch",
         )
     except ImportError:
         st.warning("Instale `reportlab` no ambiente do Streamlit para gerar o PDF.")
@@ -924,10 +924,10 @@ def render_ablls_module(
         data=csv_bytes,
         file_name=f"{protocolo_codigo}_resultados_{nome_seguro}_{data_avaliacao.isoformat()}.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch",
     )
 
     with st.expander("Resultados salvos"):
-        st.dataframe(resultados_df, hide_index=True, use_container_width=True, height=420)
+        st.dataframe(resultados_df, hide_index=True, width="stretch", height=420)
 
     return resultados_df
