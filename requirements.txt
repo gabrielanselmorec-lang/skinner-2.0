@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+streamlit
+pandas
+plotly
+matplotlib
+openpyxl
+python-docx
+sqlalchemy
+requests
+reportlab
+google-genai
+google-generativeai
+psycopg2-binary
+pypdf
+python-dotenv
+pydantic

@@ -1,0 +1,367 @@
+/* Skinner Project dashboard theme */
+
+:root {
+    --skinner-bg: #f5f0e8;
+    --skinner-surface: #fffdf8;
+    --skinner-surface-muted: #f3eadb;
+    --skinner-border: #ded0b8;
+    --skinner-border-strong: #c9b897;
+    --skinner-text: #33291f;
+    --skinner-muted: #6d5f4f;
+    --skinner-primary: #7d9b76;
+    --skinner-primary-dark: #567052;
+    --skinner-accent: #c17c74;
+    --skinner-warning: #9f6727;
+    --skinner-shadow: 0 18px 38px rgba(61, 43, 25, 0.10);
+    --skinner-shadow-soft: 0 8px 22px rgba(61, 43, 25, 0.08);
+}
+
+#MainMenu,
+footer,
+header,
+[data-testid="stStatusWidget"] {
+    visibility: hidden;
+}
+
+.stApp {
+    background: var(--skinner-bg);
+    color: var(--skinner-text);
+    font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.block-container {
+    max-width: 1220px;
+    padding: 2.1rem 1.75rem 3rem;
+}
+
+.skinner-page-header {
+    align-items: center;
+    background: var(--skinner-surface);
+    border: 1px solid var(--skinner-border);
+    border-radius: 8px;
+    box-shadow: var(--skinner-shadow-soft);
+    display: flex;
+    justify-content: space-between;
+    margin: 0 0 1.35rem;
+    padding: 1.25rem 1.35rem;
+}
+
+.skinner-page-header h1 {
+    color: var(--skinner-text);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 2rem;
+    font-weight: 750;
+    letter-spacing: 0;
+    line-height: 1.15;
+    margin: 0;
+}
+
+.skinner-eyebrow {
+    color: var(--skinner-primary-dark);
+    display: block;
+    font-size: 0.76rem;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.28rem;
+    text-transform: uppercase;
+}
+
+.skinner-header-badge {
+    background: #f2e7d5;
+    border: 1px solid #dfc7a4;
+    border-radius: 999px;
+    color: #714527;
+    font-size: 0.84rem;
+    font-weight: 700;
+    padding: 0.42rem 0.78rem;
+    white-space: nowrap;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    color: var(--skinner-text);
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    letter-spacing: 0;
+}
+
+h2,
+h3 {
+    margin-top: 0.15rem;
+}
+
+p,
+li,
+label,
+.stMarkdown {
+    color: var(--skinner-text);
+}
+
+[data-testid="stSidebar"] {
+    background: #eee3d2;
+    border-right: 1px solid var(--skinner-border);
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] label {
+    color: #3a2d20;
+    font-weight: 650;
+}
+
+[data-testid="stSidebar"] hr {
+    border-color: var(--skinner-border);
+    margin: 1.25rem 0;
+}
+
+.stRadio div[role="radiogroup"] {
+    align-items: center;
+    border-bottom: 1px solid var(--skinner-border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 0.35rem 0 1rem;
+    padding-bottom: 0.65rem;
+}
+
+.stRadio label {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--skinner-text) !important;
+    min-height: 2.5rem;
+    padding: 0.45rem 0.75rem;
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.stRadio label:hover {
+    background: #f3eadb;
+    border-color: #dfc7a4;
+}
+
+.stRadio label:has(input:checked) {
+    background: var(--skinner-surface);
+    border-color: var(--skinner-border-strong);
+    box-shadow: inset 0 -2px 0 var(--skinner-accent);
+    color: var(--skinner-text) !important;
+}
+
+.stRadio label p,
+.stRadio label span {
+    color: var(--skinner-text) !important;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent;
+    border-bottom: 1px solid var(--skinner-border);
+    gap: 0.35rem;
+    margin-bottom: 1rem;
+    padding: 0;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px 8px 0 0;
+    color: var(--skinner-muted);
+    font-weight: 750;
+    min-height: 2.75rem;
+    padding: 0.65rem 1rem;
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    background: #f3e3cc;
+    border-color: #e8cfad;
+    color: var(--skinner-primary-dark);
+}
+
+.stTabs [aria-selected="true"] {
+    background: var(--skinner-surface);
+    border-color: var(--skinner-border);
+    border-bottom-color: var(--skinner-surface);
+    color: var(--skinner-primary-dark) !important;
+}
+
+.stTabs [data-baseweb="tab-panel"] {
+    background: var(--skinner-surface);
+    border: 1px solid var(--skinner-border);
+    border-radius: 8px;
+    box-shadow: var(--skinner-shadow);
+    padding: 1.25rem;
+}
+
+.stButton > button,
+.stDownloadButton > button,
+div[data-testid="stFormSubmitButton"] button {
+    background: var(--skinner-primary);
+    border: 1px solid var(--skinner-primary);
+    border-radius: 8px;
+    box-shadow: 0 5px 14px rgba(86, 112, 82, 0.18);
+    color: #fffdf8;
+    font-weight: 750;
+    min-height: 2.45rem;
+    padding: 0.48rem 0.9rem;
+    transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.stButton > button *,
+.stDownloadButton > button *,
+div[data-testid="stFormSubmitButton"] button * {
+    color: #fffdf8 !important;
+}
+
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+div[data-testid="stFormSubmitButton"] button:hover {
+    background: var(--skinner-primary-dark);
+    border-color: var(--skinner-primary-dark);
+    box-shadow: 0 8px 20px rgba(86, 112, 82, 0.24);
+    color: #fffdf8;
+    transform: translateY(-1px);
+}
+
+.stButton > button:focus,
+.stDownloadButton > button:focus,
+div[data-testid="stFormSubmitButton"] button:focus {
+    box-shadow: 0 0 0 3px rgba(183, 121, 76, 0.24);
+}
+
+.stSelectbox label,
+.stRadio label,
+.stDateInput label,
+.stTextInput label,
+.stTextArea label,
+.stNumberInput label,
+.stMultiSelect label {
+    color: var(--skinner-text);
+    font-size: 0.9rem;
+    font-weight: 750;
+}
+
+.stTextInput input,
+.stTextArea textarea,
+.stNumberInput input,
+[data-baseweb="select"] > div,
+[data-baseweb="input"] > div {
+    background: var(--skinner-surface);
+    border-color: var(--skinner-border);
+    border-radius: 8px;
+    color: var(--skinner-text);
+}
+
+.stTextInput input,
+.stTextArea textarea,
+.stNumberInput input {
+    -webkit-text-fill-color: var(--skinner-text);
+}
+
+[data-baseweb="select"] span,
+[data-baseweb="select"] input,
+[data-baseweb="input"] input,
+[data-testid="stDateInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea {
+    color: var(--skinner-text) !important;
+    -webkit-text-fill-color: var(--skinner-text) !important;
+}
+
+[aria-disabled="true"],
+[data-disabled="true"],
+input:disabled,
+textarea:disabled {
+    color: #6b5843 !important;
+    opacity: 0.86 !important;
+    -webkit-text-fill-color: #6b5843 !important;
+}
+
+.stTextInput input:focus,
+.stTextArea textarea:focus,
+.stNumberInput input:focus,
+[data-baseweb="select"] > div:focus-within,
+[data-baseweb="input"] > div:focus-within {
+    border-color: var(--skinner-primary);
+    box-shadow: 0 0 0 3px rgba(183, 121, 76, 0.18);
+}
+
+[data-testid="stDataFrame"],
+[data-testid="stTable"],
+.stPlotlyChart {
+    background: var(--skinner-surface);
+    border: 1px solid var(--skinner-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.stPlotlyChart {
+    box-shadow: var(--skinner-shadow-soft);
+    padding: 0.65rem;
+}
+
+[data-testid="stMetric"] {
+    background: var(--skinner-surface);
+    border: 1px solid var(--skinner-border);
+    border-radius: 8px;
+    box-shadow: var(--skinner-shadow-soft);
+    padding: 0.85rem 1rem;
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--skinner-muted);
+    font-weight: 700;
+}
+
+[data-testid="stAlert"] {
+    border-radius: 8px;
+    border-width: 1px;
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid var(--skinner-border);
+    margin: 1.25rem 0;
+}
+
+div[data-testid="stExpander"] {
+    background: var(--skinner-surface);
+    border: 1px solid var(--skinner-border);
+    border-radius: 8px;
+    box-shadow: var(--skinner-shadow-soft);
+    overflow: hidden;
+}
+
+div[data-testid="stExpander"] details summary {
+    font-weight: 750;
+}
+
+@media (max-width: 900px) {
+    .block-container {
+        padding: 1rem 1rem 2rem;
+    }
+
+    .skinner-page-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.8rem;
+        padding: 1rem;
+    }
+
+    .skinner-page-header h1 {
+        font-size: 1.45rem;
+    }
+
+    .skinner-header-badge {
+        white-space: normal;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        overflow-x: auto;
+    }
+
+    .stTabs [data-baseweb="tab-panel"] {
+        padding: 0.9rem;
+    }
+}
