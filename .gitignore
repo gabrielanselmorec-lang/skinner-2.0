@@ -1,8 +1,11 @@
 .venv/
 __pycache__/
+.pytest_cache/
 skinner.db
 teste_api.py
 .env
+.env.*
+!.env.example
 credentials.json
 raw_data/
 *.db
@@ -11,8 +14,9 @@ raw_data/
 logs/
 *.log
 dados_clinica/*.xlsx
+dados_clinica/*.xls
+dados_clinica/*.csv
 dados_clinica/.knowledge_cache/
 dados_clinica/base_conhecimento_pdf_dirs.txt
 tmp/
-.pytest_cache/
 output/
